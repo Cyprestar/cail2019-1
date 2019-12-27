@@ -27,18 +27,18 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 
 if __name__ == "__main__":
-    BERT_PRETRAINED_MODEL = "/bert/pytorch_chinese_L-12_H-768_A-12"
+    BERT_PRETRAINED_MODEL = "./bert/ms"
 
     # TRAINING_DATASET = 'data/train/input.txt'  # for quick dev
-    TRAINING_DATASET = "data/raw/CAIL2019-SCM-big/SCM_5k.json"
+    TRAINING_DATASET = "./data/raw/CAIL2019-SCM-big/SCM_5k.json"
 
-    test_input_path = "data/test/input.txt"
-    test_ground_truth_path = "data/test/ground_truth.txt"
+    test_input_path = "./data/test/input.txt"
+    test_ground_truth_path = "./data/test/ground_truth.txt"
 
     config = {
         "max_length": 512,
-        "epochs": 2,
-        "batch_size": 12,
+        "epochs": 8,
+        "batch_size": 5,
         "learning_rate": 2e-5,
         "fp16": True,
         "fp16_opt_level": "O1",
