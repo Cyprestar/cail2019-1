@@ -4,7 +4,8 @@ import time
 
 import torch
 
-from model import BertSimMatchModel, TripletTextDataset
+from model import BertSimMatchModel
+from data import TripletTextDataset
 
 logging.disable(sys.maxsize)
 
@@ -19,7 +20,7 @@ if len(sys.argv) == 3:
 inf = open(input_path, "r", encoding="utf-8")
 ouf = open(output_path, "w", encoding="utf-8")
 
-MODEL_DIR = "model"
+MODEL_DIR = "./model4"
 model = BertSimMatchModel.load(MODEL_DIR, torch.device("cpu"))
 
 test_set = TripletTextDataset.from_jsons(input_path)

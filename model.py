@@ -5,225 +5,23 @@ import random
 from typing import Tuple, List, Union
 
 import numpy as np
-import pandas as pd
 import torch
 from sklearn.model_selection import KFold
-from torch import nn
-from torch.autograd import Variable
-from torch.nn import CrossEntropyLoss
+
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data import Dataset
-from torch.utils.data.dataloader import default_collate
 from tqdm import tqdm
 from transformers import (
     AdamW,
     get_linear_schedule_with_warmup,
-    BertConfig,
     BertTokenizer,
 )
-from transformers.modeling_bert import BertPreTrainedModel, BertModel
+
+from config import HyperParameters, SimMatchModelConfig
+from data import TripletTextDataset, get_collator
+from models.bert_esim import BertForSimMatchModel
 
 logger = logging.getLogger("train model")
-
-
-class HyperParameters(object):
-    """
-    用于管理模型超参数
-    """
-
-    def __init__(
-            self,
-            max_length: int = 128,
-            epochs=4,
-            batch_size=32,
-            learning_rate=2e-5,
-            fp16=True,
-            fp16_opt_level="O1",
-            max_grad_norm=1.0,
-            warmup_steps=0.1,
-    ) -> None:
-        self.max_length = max_length
-        """句子的最大长度"""
-        self.epochs = epochs
-        """训练迭代轮数"""
-        self.batch_size = batch_size
-        """每个batch的样本数量"""
-        self.learning_rate = learning_rate
-        """学习率"""
-        self.fp16 = fp16
-        """是否使用fp16混合精度训练"""
-        self.fp16_opt_level = fp16_opt_level
-        """用于fp16，Apex AMP优化等级，['O0', 'O1', 'O2', and 'O3']可选，详见https://nvidia.github.io/apex/amp.html"""
-        self.max_grad_norm = max_grad_norm
-        """最大梯度裁剪"""
-        self.warmup_steps = warmup_steps
-        """学习率线性预热步数"""
-
-    def __repr__(self) -> str:
-        return self.__dict__.__repr__()
-
-
-class SimMatchModelConfig(BertConfig):
-    """
-    相似案例匹配模型的配置
-    """
-
-    def __init__(self, max_len=512, algorithm="BertForSimMatchModel", **kwargs):
-        super(SimMatchModelConfig, self).__init__(**kwargs)
-        self.max_len = max_len
-        self.algorithm = algorithm
-
-
-class BertForSimMatchModel(BertPreTrainedModel):
-    """
-    ab、ac交互并编码
-    """
-
-    def __init__(self, config):
-        super(BertForSimMatchModel, self).__init__(config)
-        self.bert = BertModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.seq_relationship = nn.Linear(config.hidden_size, 2)
-        self.init_weights()
-
-    def forward(self, ab, ac, labels=None, mode="prob"):
-        ab_pooled_output = self.bert(*ab)[1]
-        ac_pooled_output = self.bert(*ac)[1]
-        subtraction_output = ab_pooled_output - ac_pooled_output
-        concated_pooled_output = self.dropout(subtraction_output)
-        output = self.seq_relationship(concated_pooled_output)
-
-        if mode == "prob":
-            prob = torch.nn.functional.softmax(Variable(output), dim=1)
-            return prob
-        elif mode == "logits":
-            return output
-        elif mode == "loss":
-            loss_fct = CrossEntropyLoss()
-            loss = loss_fct(output.view(-1, 2), labels.view(-1))
-            return loss
-        elif mode == "evaluate":
-            prob = torch.nn.functional.softmax(Variable(output), dim=1)
-            loss_fct = CrossEntropyLoss()
-            loss = loss_fct(output.view(-1, 2), labels.view(-1))
-            return output, prob, loss
-
-
-class TripletTextDataset(Dataset):
-    def __init__(self, text_a_list, text_b_list, text_c_list, label_list=None):
-        if label_list is None or len(label_list) == 0:
-            label_list = [None] * len(text_a_list)
-        assert all(
-            len(label_list) == len(text_list)
-            for text_list in [text_a_list, text_b_list, text_c_list]
-        )
-        self.text_a_list = text_a_list
-        self.text_b_list = text_b_list
-        self.text_c_list = text_c_list
-        self.label_list = [0 if label == "B" else 1 for label in label_list]
-
-    def __len__(self):
-        return len(self.label_list)
-
-    def __getitem__(self, index):
-        text_a, text_b, text_c, label = (
-            self.text_a_list[index],
-            self.text_b_list[index],
-            self.text_c_list[index],
-            self.label_list[index],
-        )
-        return text_a, text_b, text_c, label
-
-    @classmethod
-    def from_dataframe(cls, df):
-        text_a_list = df["A"].tolist()
-        text_b_list = df["B"].tolist()
-        text_c_list = df["C"].tolist()
-        if "label" not in df:
-            df["label"] = "B"
-        label_list = df["label"].tolist()
-        return cls(text_a_list, text_b_list, text_c_list, label_list)
-
-    @classmethod
-    def from_dict_list(cls, data, use_augment=False):
-        df = pd.DataFrame(data)
-        if "label" not in df:
-            df["label"] = "B"
-        if use_augment:
-            df = TripletTextDataset.augment(df)
-        return cls.from_dataframe(df)
-
-    @classmethod
-    def from_jsons(cls, json_lines_file, use_augment=False):
-        with open(json_lines_file, encoding="utf-8") as f:
-            data = list(map(lambda line: json.loads(line), f))
-        return cls.from_dict_list(data, use_augment)
-
-    @staticmethod
-    def augment(df):
-        df_cp1 = df.copy()
-        df_cp1["B"] = df["C"]
-        df_cp1["C"] = df["B"]
-        df_cp1["label"] = "C"
-
-        df_cp2 = df.copy()
-        df_cp2["A"] = df["B"]
-        df_cp2["B"] = df["A"]
-        df_cp2["label"] = "B"
-
-        df_cp3 = df.copy()
-        df_cp3["A"] = df["B"]
-        df_cp3["B"] = df["C"]
-        df_cp3["C"] = df["A"]
-        df_cp3["label"] = "C"
-
-        df_cp4 = df.copy()
-        df_cp4["A"] = df["C"]
-        df_cp4["B"] = df["A"]
-        df_cp4["C"] = df["C"]
-        df_cp4["label"] = "C"
-
-        df_cp5 = df.copy()
-        df_cp5["A"] = df["C"]
-        df_cp5["B"] = df["C"]
-        df_cp5["C"] = df["A"]
-        df_cp5["label"] = "B"
-
-        df = pd.concat([df, df_cp1, df_cp2, df_cp3, df_cp4, df_cp5])
-        df = df.drop_duplicates()
-        df = df.sample(frac=1)
-
-        return df
-
-
-def get_collator(max_len, device, tokenizer, model_class):
-    def two_pair_collate_fn(batch):
-        """
-        获取一个mini batch的数据，将文本三元组转化成tensor。
-
-        将ab、ac分别拼接，编码tensor
-
-        :param batch:
-        :return:
-        """
-        example_tensors = []
-        for text_a, text_b, text_c, label in batch:
-            input_example = InputExample(text_a, text_b, text_c, label)
-            ab_feature, ac_feature = input_example.to_two_pair_feature(
-                tokenizer, max_len
-            )
-            ab_tensor, ac_tensor = (
-                ab_feature.to_tensor(device),
-                ac_feature.to_tensor(device),
-            )
-            label_tensor = torch.LongTensor([label]).to(device)
-            example_tensors.append((ab_tensor, ac_tensor, label_tensor))
-
-        return default_collate(example_tensors)
-
-    if model_class == BertForSimMatchModel:
-        return two_pair_collate_fn
-
 
 algorithm_map = {"BertForSimMatchModel": BertForSimMatchModel}
 
@@ -283,7 +81,7 @@ class BertSimMatchModel(object):
             data = TripletTextDataset(text_a_list, text_b_list, text_c_list, None)
 
         sampler = SequentialSampler(data)
-        collate_fn = get_collator(self.max_length, self.device, self.tokenizer, self.model_class)
+        collate_fn = get_collator(self.max_length, self.device, self.tokenizer)
         dataloader = DataLoader(data, sampler=sampler, batch_size=8, collate_fn=collate_fn)
 
         final_results = []
@@ -329,7 +127,7 @@ class BertModelTrainer(object):
         self.test_ground_truth_path = test_ground_truth_path
         self.algorithm = algorithm
         self.model_class = algorithm_map[self.algorithm]
-        logger.info("算法:" + algorithm)
+        logger.info("Algorithm: " + algorithm)
 
     def load_dataset(self, n_splits: int = 1) -> List[Tuple[TripletTextDataset, TripletTextDataset, List[str]]]:
         """
@@ -388,7 +186,7 @@ class BertModelTrainer(object):
 
     def train(self, model_dir, kfold=1):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        n_gpu = torch.cuda.device_count()
+        n_gpu = 1  # torch.cuda.device_count()
         logger.info("***** Running training *****")
         logger.info("dataset: {}".format(self.dataset_path))
         logger.info("k-fold number: {}".format(kfold))
@@ -408,15 +206,13 @@ class BertModelTrainer(object):
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
 
-        tokenizer = BertTokenizer.from_pretrained(
-            self.bert_model_dir, do_lower_case=True
-        )
+        tokenizer = BertTokenizer.from_pretrained(self.bert_model_dir, do_lower_case=True)
         data = self.load_dataset(kfold)
 
         all_acc_list = []
         for k, (train_data, test_data, test_label_list) in enumerate(data, start=1):
             one_fold_acc_list = []
-            bert_model = self.model_class.from_pretrained(self.bert_model_dir)
+            bert_model = self.model_class.from_pretrained(self.bert_model_dir, output_hidden_states=True)
             bert_model.to(device)
 
             config = bert_model.config
@@ -442,9 +238,7 @@ class BertModelTrainer(object):
                 num_warmup_steps = (num_train_optimization_steps * self.param.warmup_steps)
             else:
                 num_warmup_steps = self.param.warmup_steps
-            optimizer = AdamW(
-                optimizer_grouped_parameters, lr=self.param.learning_rate, eps=1e-8
-            )
+            optimizer = AdamW(optimizer_grouped_parameters, lr=self.param.learning_rate, eps=1e-8)
             scheduler = get_linear_schedule_with_warmup(
                 optimizer,
                 num_warmup_steps=num_warmup_steps,
@@ -455,13 +249,9 @@ class BertModelTrainer(object):
                 try:
                     from apex import amp
                 except ImportError:
-                    raise ImportError(
-                        "Please install apex from https://www.github.com/nvidia/apex to use fp16 training."
-                    )
+                    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
 
-                bert_model, optimizer = amp.initialize(
-                    bert_model, optimizer, opt_level=self.param.fp16_opt_level
-                )
+                bert_model, optimizer = amp.initialize(bert_model, optimizer, opt_level=self.param.fp16_opt_level)
 
             if n_gpu > 1:
                 bert_model = torch.nn.DataParallel(bert_model)
@@ -476,7 +266,7 @@ class BertModelTrainer(object):
 
             train_sampler = RandomSampler(train_data)
 
-            collate_fn = get_collator(self.param.max_length, device, tokenizer, self.model_class)
+            collate_fn = get_collator(self.param.max_length, device, tokenizer)
 
             train_dataloader = DataLoader(
                 dataset=train_data,
@@ -577,12 +367,8 @@ class BertModelTrainer(object):
                 data = data.__add__(padding_data)
 
         sampler = SequentialSampler(data)
-        collate_fn = get_collator(
-            model.max_length, model.device, model.tokenizer, model.model_class
-        )
-        dataloader = DataLoader(
-            data, sampler=sampler, batch_size=8, collate_fn=collate_fn
-        )
+        collate_fn = get_collator(model.max_length, model.device, model.tokenizer)
+        dataloader = DataLoader(data, sampler=sampler, batch_size=8, collate_fn=collate_fn)
 
         predict_result = []
         loss_sum = 0
@@ -615,116 +401,3 @@ class BertModelTrainer(object):
 
         acc = correct / len(real_label_list)
         return acc, loss_sum
-
-
-class InputFeatures(object):
-    """A single set of features of data."""
-
-    def __init__(self, input_ids, input_mask, segment_ids):
-        self.input_ids = input_ids
-        self.input_mask = input_mask
-        self.segment_ids = segment_ids
-
-    def to_tensor(self, device) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        return (
-            torch.LongTensor(self.input_ids).to(device),
-            torch.LongTensor(self.segment_ids).to(device),
-            torch.LongTensor(self.input_mask).to(device),
-        )
-
-
-class InputExample(object):
-    """A single training/test example for simple sequence classification."""
-
-    def __init__(self, text_a, text_b=None, text_c=None, label=None):
-        """Constructs a InputExample.
-
-        Args:
-            text_a: string. The untokenized text of the first sequence. For single
-            sequence tasks, only this sequence must be specified.
-            text_b: (Optional) string. The untokenized text of the second sequence.
-            Only must be specified for sequence pair tasks.
-            label: (Optional) string. The label of the example. This should be
-            specified for train and dev examples, but not for test examples.
-        """
-        self.text_a = text_a
-        self.text_b = text_b
-        self.text_c = text_c
-        self.label = label
-
-    @staticmethod
-    def _text_pair_to_feature(text_a, text_b, tokenizer, max_seq_length):
-        tokens_a = tokenizer.tokenize(text_a)
-        tokens_b = None
-
-        if text_b:
-            tokens_b = tokenizer.tokenize(text_b)
-            _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
-        else:
-            if len(tokens_a) > max_seq_length - 2:
-                tokens_a = tokens_a[: (max_seq_length - 2)]
-
-        # The convention in BERT is:
-        # (a) For sequence pairs:
-        #  tokens:   [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]
-        #  type_ids: 0   0  0    0    0     0       0 0    1  1  1  1   1 1
-        # (b) For single sequences:
-        #  tokens:   [CLS] the dog is hairy . [SEP]
-        #  type_ids: 0   0   0   0  0     0 0
-        #
-        # Where "type_ids" are used to indicate whether this is the first
-        # sequence or the second sequence. The embedding vectors for `type=0` and
-        # `type=1` were learned during pre-training and are added to the wordpiece
-        # embedding vector (and position vector). This is not *strictly* necessary
-        # since the [SEP] token unambiguously separates the sequences, but it makes
-        # it easier for the model to learn the concept of sequences.
-        #
-        # For classification tasks, the first vector (corresponding to [CLS]) is
-        # used as as the "sentence vector". Note that this only makes sense because
-        # the entire model is fine-tuned.
-        tokens = ["[CLS]"] + tokens_a + ["[SEP]"]
-        segment_ids = [0] * len(tokens)
-
-        if tokens_b:
-            tokens += tokens_b + ["[SEP]"]
-            segment_ids += [1] * (len(tokens_b) + 1)
-
-        input_ids = tokenizer.convert_tokens_to_ids(tokens)
-        # The mask has 1 for real tokens and 0 for padding tokens. Only real
-        # tokens are attended to.
-        input_mask = [1] * len(input_ids)
-
-        # Zero-pad up to the sequence length.
-        padding = [0] * (max_seq_length - len(input_ids))
-        input_ids += padding
-        input_mask += padding
-        segment_ids += padding
-
-        assert len(input_ids) == max_seq_length
-        assert len(input_mask) == max_seq_length
-        assert len(segment_ids) == max_seq_length
-
-        return input_ids, segment_ids, input_mask
-
-    def to_two_pair_feature(self, tokenizer, max_seq_length) -> Tuple[InputFeatures, InputFeatures]:
-        ab = self._text_pair_to_feature(self.text_a, self.text_b, tokenizer, max_seq_length)
-        ac = self._text_pair_to_feature(self.text_a, self.text_c, tokenizer, max_seq_length)
-        ab, ac = InputFeatures(*ab), InputFeatures(*ac)
-        return ab, ac
-
-
-def _truncate_seq_pair(tokens_a: list, tokens_b: list, max_length):
-    """Truncates a sequence pair in place to the maximum length."""
-
-    # This is a simple heuristic which will always truncate the longer sequence
-    # one token at a time. This makes more sense than truncating an equal percent
-    # of tokens from each, since if one sequence is very short then each token
-    # that's truncated likely contains more information than a longer sequence.
-    while True:
-        total_length = len(tokens_a) + len(tokens_b)
-        if total_length <= max_length:
-            break
-        if len(tokens_a) > len(tokens_b):
-            tokens_a.pop(0)
-        else:
-            tokens_b.pop(0)

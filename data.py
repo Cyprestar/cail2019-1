@@ -1,91 +1,235 @@
 import json
-import logging
-import os
+from typing import Tuple
 
-import random
-from zipfile import ZipFile
+import pandas as pd
 
-from transformers import cached_path
-
-logger = logging.getLogger(__name__)
-
-# 比赛各阶段数据集，CAIL2019-SCM-big 是第二阶段数据集
-DATASET_ARCHIVE_MAP = {
-    "CAIL2019-SCM-big": "https://cail.oss-cn-qingdao.aliyuncs.com/cail2019/CAIL2019-SCM.zip"
-}
+import torch
+from torch.utils.data import Dataset
+from torch.utils.data.dataloader import default_collate
 
 
-def download_data(dataset_name):
-    """
-    下载数据集
+class TripletTextDataset(Dataset):
+    def __init__(self, text_a_list, text_b_list, text_c_list, label_list=None):
+        if label_list is None or len(label_list) == 0:
+            label_list = [None] * len(text_a_list)
+        assert all(
+            len(label_list) == len(text_list)
+            for text_list in [text_a_list, text_b_list, text_c_list]
+        )
+        self.text_a_list = text_a_list
+        self.text_b_list = text_b_list
+        self.text_c_list = text_c_list
+        self.label_list = [0 if label == "B" else 1 for label in label_list]
 
-    :param dataset_name: 数据集名称。
-    :return:
-    """
-    url = DATASET_ARCHIVE_MAP[dataset_name]
-    try:
-        resolved_archive_file = cached_path(url)
-    except EnvironmentError:
-        logger.error("Dataset Download failed!")
-        return None
+    def __len__(self):
+        return len(self.label_list)
 
-    data_dir = os.path.join("data/raw", dataset_name)
-    with ZipFile(resolved_archive_file, "r") as zipObj:
-        data_file_name = list(filter(lambda f: f.endswith(".json"), zipObj.namelist()))[
-            0
-        ]
-        zipObj.extract(data_file_name, data_dir)
-        return os.path.join(data_dir, data_file_name)
+    def __getitem__(self, index):
+        text_a, text_b, text_c, label = (
+            self.text_a_list[index],
+            self.text_b_list[index],
+            self.text_c_list[index],
+            self.label_list[index],
+        )
+        return text_a, text_b, text_c, label
+
+    @classmethod
+    def from_dataframe(cls, df):
+        text_a_list = df["A"].tolist()
+        text_b_list = df["B"].tolist()
+        text_c_list = df["C"].tolist()
+        if "label" not in df:
+            df["label"] = "B"
+        label_list = df["label"].tolist()
+        return cls(text_a_list, text_b_list, text_c_list, label_list)
+
+    @classmethod
+    def from_dict_list(cls, data, use_augment=False):
+        df = pd.DataFrame(data)
+        if "label" not in df:
+            df["label"] = "B"
+        if use_augment:
+            df = TripletTextDataset.augment(df)
+        return cls.from_dataframe(df)
+
+    @classmethod
+    def from_jsons(cls, json_lines_file, use_augment=False):
+        with open(json_lines_file, encoding="utf-8") as f:
+            data = list(map(lambda line: json.loads(line), f))
+        return cls.from_dict_list(data, use_augment)
+
+    @staticmethod
+    def augment(df):
+        df_cp1 = df.copy()
+        df_cp1["B"] = df["C"]
+        df_cp1["C"] = df["B"]
+        df_cp1["label"] = "C"
+
+        df_cp2 = df.copy()
+        df_cp2["A"] = df["B"]
+        df_cp2["B"] = df["A"]
+        df_cp2["label"] = "B"
+
+        df_cp3 = df.copy()
+        df_cp3["A"] = df["B"]
+        df_cp3["B"] = df["C"]
+        df_cp3["C"] = df["A"]
+        df_cp3["label"] = "C"
+
+        df_cp4 = df.copy()
+        df_cp4["A"] = df["C"]
+        df_cp4["B"] = df["A"]
+        df_cp4["C"] = df["C"]
+        df_cp4["label"] = "C"
+
+        df_cp5 = df.copy()
+        df_cp5["A"] = df["C"]
+        df_cp5["B"] = df["C"]
+        df_cp5["C"] = df["A"]
+        df_cp5["label"] = "B"
+
+        df = pd.concat([df, df_cp1, df_cp2, df_cp3, df_cp4, df_cp5])
+        df = df.drop_duplicates()
+        df = df.sample(frac=1)
+
+        return df
 
 
-def generate_fix_test_data(raw_input_file):
-    """
-    生成固定的测试集数据。该数据仅用于基本的模型可用性测试。抽取20%数据，打乱BC顺序。
+def get_collator(max_len, device, tokenizer):
+    def two_pair_collate_fn(batch):
+        """
+        获取一个mini batch的数据，将文本三元组转化成tensor。
 
-    :param raw_input_file: 原始的数据集文件
-    :return:
-    """
-    test_input_file = "data/test/input.txt"
-    train_input_file = "data/train/input.txt"
-    label_output_file = "data/test/ground_truth.txt"
-    lines = []
-    with open(raw_input_file, encoding="utf-8") as raw_input:
-        for line in raw_input:
-            lines.append(line.strip())
-    random.seed(42)
-    random.shuffle(lines)
-    n_test = int(len(lines) * 0.2)
-    test_lines = lines[:n_test]
-    train_lines = lines[n_test:]
+        将ab、ac分别拼接，编码tensor
 
-    os.makedirs("data/train", exist_ok=True)
-    with open(train_input_file, mode="w", encoding="utf-8") as train_input:
-        for line in train_lines:
-            train_input.write(line)
-            train_input.write("\n")
+        :param batch:
+        :return:
+        """
+        example_tensors = []
+        for text_a, text_b, text_c, label in batch:
+            input_example = InputExample(text_a, text_b, text_c, label)
+            ab_feature, ac_feature = input_example.to_two_pair_feature(tokenizer, max_len)
+            ab_tensor, ac_tensor = (
+                ab_feature.to_tensor(device),
+                ac_feature.to_tensor(device),
+            )
+            label_tensor = torch.LongTensor([label]).to(device)
+            example_tensors.append((ab_tensor, ac_tensor, label_tensor))
 
-    os.makedirs("data/test", exist_ok=True)
-    with open(test_input_file, mode="w", encoding="utf-8") as test_input, open(
-        label_output_file, encoding="utf-8", mode="w"
-    ) as label_output:
-        for line in test_lines:
-            choice = int(random.getrandbits(1))
-            label = "B" if choice == 0 else "C"
+        return default_collate(example_tensors)
 
-            item = json.loads(line, encoding="utf-8")
-            a = item["A"]
-            b = item["B"]
-            c = item["C"]
-
-            label_output.write(label)
-            label_output.write("\n")
-            if label == "C":
-                line = json.dumps({"A": a, "B": c, "C": b}, ensure_ascii=False).strip()
-
-            test_input.write(line)
-            test_input.write("\n")
+    return two_pair_collate_fn
 
 
-if __name__ == "__main__":
-    data_file = download_data("CAIL2019-SCM-big")
-    generate_fix_test_data(data_file)
+class InputFeatures(object):
+    """A single set of features of data."""
+
+    def __init__(self, input_ids, input_mask, segment_ids):
+        self.input_ids = input_ids
+        self.input_mask = input_mask
+        self.segment_ids = segment_ids
+
+    def to_tensor(self, device) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return (
+            torch.LongTensor(self.input_ids).to(device),
+            torch.LongTensor(self.segment_ids).to(device),
+            torch.LongTensor(self.input_mask).to(device),
+        )
+
+
+class InputExample(object):
+    """A single training/test example for simple sequence classification."""
+
+    def __init__(self, text_a, text_b=None, text_c=None, label=None):
+        """Constructs a InputExample.
+
+        Args:
+            text_a: string. The untokenized text of the first sequence. For single
+            sequence tasks, only this sequence must be specified.
+            text_b: (Optional) string. The untokenized text of the second sequence.
+            Only must be specified for sequence pair tasks.
+            label: (Optional) string. The label of the example. This should be
+            specified for train and dev examples, but not for test examples.
+        """
+        self.text_a = text_a
+        self.text_b = text_b
+        self.text_c = text_c
+        self.label = label
+
+    @staticmethod
+    def _text_pair_to_feature(text_a, text_b, tokenizer, max_seq_length):
+        tokens_a = tokenizer.tokenize(text_a)
+        tokens_b = None
+
+        if text_b:
+            tokens_b = tokenizer.tokenize(text_b)
+            _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
+        else:
+            if len(tokens_a) > max_seq_length - 2:
+                tokens_a = tokens_a[: (max_seq_length - 2)]
+
+        # https://huggingface.co/transformers/model_doc/bert.html?highlight=bertmodel#transformers.BertModel
+        # The convention in BERT is:
+        # (a) For sequence pairs:
+        #  tokens:   [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]
+        #  type_ids: 0   0  0    0    0     0       0 0    1  1  1  1   1 1
+        # (b) For single sequences:
+        #  tokens:   [CLS] the dog is hairy . [SEP]
+        #  type_ids: 0   0   0   0  0     0 0
+        #
+        # Where "type_ids" are used to indicate whether this is the first
+        # sequence or the second sequence. The embedding vectors for `type=0` and
+        # `type=1` were learned during pre-training and are added to the wordpiece
+        # embedding vector (and position vector). This is not *strictly* necessary
+        # since the [SEP] token unambiguously separates the sequences, but it makes
+        # it easier for the model to learn the concept of sequences.
+        #
+        # For classification tasks, the first vector (corresponding to [CLS]) is
+        # used as as the "sentence vector". Note that this only makes sense because
+        # the entire model is fine-tuned.
+        tokens = ["[CLS]"] + tokens_a + ["[SEP]"]
+        segment_ids = [0] * len(tokens)
+
+        if tokens_b:
+            tokens += tokens_b + ["[SEP]"]
+            segment_ids += [1] * (len(tokens_b) + 1)
+
+        input_ids = tokenizer.convert_tokens_to_ids(tokens)
+        # The mask has 1 for real tokens and 0 for padding tokens. Only real
+        # tokens are attended to.
+        input_mask = [1] * len(input_ids)
+
+        # Zero-pad up to the sequence length.
+        padding = [0] * (max_seq_length - len(input_ids))
+        input_ids += padding
+        input_mask += padding
+        segment_ids += padding
+
+        assert len(input_ids) == max_seq_length
+        assert len(input_mask) == max_seq_length
+        assert len(segment_ids) == max_seq_length
+
+        return input_ids, segment_ids, input_mask
+
+    def to_two_pair_feature(self, tokenizer, max_seq_length) -> Tuple[InputFeatures, InputFeatures]:
+        ab = self._text_pair_to_feature(self.text_a, self.text_b, tokenizer, max_seq_length)
+        ac = self._text_pair_to_feature(self.text_a, self.text_c, tokenizer, max_seq_length)
+        ab, ac = InputFeatures(*ab), InputFeatures(*ac)
+        return ab, ac
+
+
+def _truncate_seq_pair(tokens_a: list, tokens_b: list, max_length):
+    """Truncates a sequence pair in place to the maximum length."""
+
+    # This is a simple heuristic which will always truncate the longer sequence
+    # one token at a time. This makes more sense than truncating an equal percent
+    # of tokens from each, since if one sequence is very short then each token
+    # that's truncated likely contains more information than a longer sequence.
+    while True:
+        total_length = len(tokens_a) + len(tokens_b)
+        if total_length <= max_length:
+            break
+        if len(tokens_a) > len(tokens_b):
+            tokens_a.pop(0)
+        else:
+            tokens_b.pop(0)

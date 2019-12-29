@@ -11,7 +11,7 @@ formatter = logging.Formatter(
     "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-MODEL_DIR = "model"
+MODEL_DIR = "./model"
 if not os.path.exists(MODEL_DIR):
     os.mkdir(MODEL_DIR)
 fh = logging.FileHandler(os.path.join(MODEL_DIR, "train.log"), encoding="utf-8")
@@ -37,10 +37,10 @@ if __name__ == "__main__":
 
     config = {
         "max_length": 512,
-        "epochs": 8,
-        "batch_size": 5,
+        "epochs": 10,
+        "batch_size": 4,
         "learning_rate": 2e-5,
-        "fp16": True,
+        "fp16": False,
         "fp16_opt_level": "O1",
         "max_grad_norm": 1.0,
         "warmup_steps": 0.1,
