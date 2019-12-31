@@ -96,7 +96,7 @@ class TripletTextDataset(Dataset):
 
 
 def get_collator(max_len, device, tokenizer):
-    def two_pair_collate_fn(batch):
+    def three_pair_collate_fn(batch):
         """
         获取一个mini batch的数据，将文本三元组转化成tensor。
 
@@ -108,17 +108,18 @@ def get_collator(max_len, device, tokenizer):
         example_tensors = []
         for text_a, text_b, text_c, label in batch:
             input_example = InputExample(text_a, text_b, text_c, label)
-            ab_feature, ac_feature = input_example.to_two_pair_feature(tokenizer, max_len)
-            ab_tensor, ac_tensor = (
-                ab_feature.to_tensor(device),
-                ac_feature.to_tensor(device),
+            a_feature, b_feature, c_feature = input_example.to_two_pair_feature(tokenizer, max_len)
+            a_tensor, b_tensor, c_tensor = (
+                a_feature.to_tensor(device),
+                b_feature.to_tensor(device),
+                c_feature.to_tensor(device)
             )
             label_tensor = torch.LongTensor([label]).to(device)
-            example_tensors.append((ab_tensor, ac_tensor, label_tensor))
+            example_tensors.append((a_tensor, b_tensor, c_tensor, label_tensor))
 
         return default_collate(example_tensors)
 
-    return two_pair_collate_fn
+    return three_pair_collate_fn
 
 
 class InputFeatures(object):
@@ -211,11 +212,11 @@ class InputExample(object):
 
         return input_ids, segment_ids, input_mask
 
-    def to_two_pair_feature(self, tokenizer, max_seq_length) -> Tuple[InputFeatures, InputFeatures]:
-        ab = self._text_pair_to_feature(self.text_a, self.text_b, tokenizer, max_seq_length)
-        ac = self._text_pair_to_feature(self.text_a, self.text_c, tokenizer, max_seq_length)
-        ab, ac = InputFeatures(*ab), InputFeatures(*ac)
-        return ab, ac
+    def to_two_pair_feature(self, tokenizer, max_seq_length) -> Tuple[InputFeatures, InputFeatures, InputFeatures]:
+        a = self._text_pair_to_feature(self.text_a, None, tokenizer, max_seq_length)
+        b = self._text_pair_to_feature(self.text_b, None, tokenizer, max_seq_length)
+        c = self._text_pair_to_feature(self.text_c, None, tokenizer, max_seq_length)
+        return InputFeatures(*a), InputFeatures(*b), InputFeatures(*c)
 
 
 def _truncate_seq_pair(tokens_a: list, tokens_b: list, max_length):

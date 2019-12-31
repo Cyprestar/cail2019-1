@@ -35,53 +35,28 @@ class BertForSimMatchModel(BertPreTrainedModel):
                                              nn.Linear(config.hidden_size, 2))
         self.apply(self.init_esim_weights)
 
-    def forward(self, ab, ac, labels=None, mode="prob"):
-        ab_mask = ab[1].float()
-        ac_mask = ac[1].float()
-        ab_length = ab_mask.sum(dim=-1).long()
-        ac_length = ac_mask.sum(dim=-1).long()
+    def forward(self, a, b, c, labels=None, mode="prob"):
+        a_mask = a[1].float()
+        b_mask = b[1].float()
+        c_mask = c[1].float()
+
         # the parameter is: input_ids, attention_mask, token_type_ids
         # which is corresponding to input_ids, input_mask and segment_ids in InputFeatures
-        ab_pooled_output = self.bert(*ab)[0]
-        ac_pooled_output = self.bert(*ac)[0]
-        # ab_pooled_output = self.bert(*ab)[1].flatten()
-        # ac_pooled_output = self.bert(*ac)[1].flatten()
+        a_output = self.bert(*a)[0]
+        b_output = self.bert(*b)[0]
+        c_output = self.bert(*c)[0]
         # The return value: sequence_output, pooled_output, (hidden_states), (attentions)
 
-        attended_ab, attended_ac = self._attention(ab_pooled_output, ab_mask, ac_pooled_output, ac_mask)
+        v_ab = self.siamese(a_output, b_output, a_mask, b_mask)
+        v_ac = self.siamese(a_output, c_output, a_mask, c_mask)
 
-        enhanced_ab = torch.cat([ab_pooled_output,
-                                 attended_ab,
-                                 ab_pooled_output - attended_ab,
-                                 ab_pooled_output * attended_ab],
-                                dim=-1)
+        subtraction = v_ab - v_ac
 
-        enhanced_ac = torch.cat([ac_pooled_output,
-                                 attended_ac,
-                                 ac_pooled_output - attended_ac,
-                                 ac_pooled_output * attended_ac],
-                                dim=-1)
+        # Solution 1: v_ab - v_ac
+        # Solution 2: cat(v_ab, v_ac)
+        # Solution 3: margin - sim_a + sim_b
 
-        projected_ab = self._projection(enhanced_ab)
-        projected_ac = self._projection(enhanced_ac)
-
-        # projected_ab = self._rnn_dropout(projected_ab)
-        # projected_ac = self._rnn_dropout(projected_ac)
-
-        v_ai = self._composition(projected_ab, ab_length)
-        v_bj = self._composition(projected_ac, ac_length)
-
-        v_a_avg = torch.sum(v_ai * ab_mask.unsqueeze(1)
-                            .transpose(2, 1), dim=1) / torch.sum(ab_mask, dim=1, keepdim=True)
-        v_b_avg = torch.sum(v_bj * ac_mask.unsqueeze(1)
-                            .transpose(2, 1), dim=1) / torch.sum(ac_mask, dim=1, keepdim=True)
-
-        v_a_max, _ = replace_masked(v_ai, ab_mask, -1e7).max(dim=1)
-        v_b_max, _ = replace_masked(v_bj, ac_mask, -1e7).max(dim=1)
-
-        v = torch.cat([v_a_avg, v_a_max, v_b_avg, v_b_max], dim=1)
-
-        output = self._classification(v)
+        output = self._classification(subtraction)
 
         if mode == "prob":
             prob = torch.nn.functional.softmax(Variable(output), dim=1)
@@ -97,6 +72,46 @@ class BertForSimMatchModel(BertPreTrainedModel):
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(output.view(-1, 2), labels.view(-1))
             return output, prob, loss
+
+    def siamese(self, a_output, b_output, a_mask, b_mask):
+
+        a_length = a_mask.sum(dim=-1).long()
+        b_length = b_mask.sum(dim=-1).long()
+
+        attended_a, attended_b = self._attention(a_output, a_mask, b_output, b_mask)
+
+        enhanced_a = torch.cat([a_output,
+                                attended_a,
+                                a_output - attended_a,
+                                a_output * attended_a],
+                               dim=-1)
+
+        enhanced_b = torch.cat([b_output,
+                                attended_b,
+                                b_output - attended_b,
+                                b_output * attended_b],
+                               dim=-1)
+
+        projected_a = self._projection(enhanced_a)
+        projected_b = self._projection(enhanced_b)
+
+        # projected_ab = self._rnn_dropout(projected_ab)
+        # projected_ac = self._rnn_dropout(projected_ac)
+
+        v_ai = self._composition(projected_a, a_length)
+        v_bj = self._composition(projected_b, b_length)
+
+        v_a_avg = torch.sum(v_ai * a_mask.unsqueeze(1)
+                            .transpose(2, 1), dim=1) / torch.sum(a_mask, dim=1, keepdim=True)
+        v_b_avg = torch.sum(v_bj * b_mask.unsqueeze(1)
+                            .transpose(2, 1), dim=1) / torch.sum(b_mask, dim=1, keepdim=True)
+
+        v_a_max, _ = replace_masked(v_ai, a_mask, -1e7).max(dim=1)
+        v_b_max, _ = replace_masked(v_bj, b_mask, -1e7).max(dim=1)
+
+        v = torch.cat([v_a_avg, v_a_max, v_b_avg, v_b_max], dim=1)
+
+        return v
 
     @staticmethod
     def init_esim_weights(module):
