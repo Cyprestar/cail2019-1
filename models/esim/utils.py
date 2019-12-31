@@ -32,13 +32,11 @@ def sort_by_seq_lens(batch, sequences_lengths, descending=True):
             restore the order of the sequences in 'sorted_batch' so that it
             matches the input batch.
     """
-    sorted_seq_lens, sorting_index =\
-        sequences_lengths.sort(0, descending=descending)
+    sorted_seq_lens, sorting_index = sequences_lengths.sort(0, descending=descending)
 
     sorted_batch = batch.index_select(0, sorting_index)
 
-    idx_range =\
-        sequences_lengths.new_tensor(torch.arange(0, len(sequences_lengths)))
+    idx_range = sequences_lengths.new_tensor(torch.arange(0, len(sequences_lengths)))
     _, reverse_mapping = sorting_index.sort(0, descending=False)
     restoration_index = idx_range.index_select(0, reverse_mapping)
 

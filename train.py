@@ -37,8 +37,8 @@ if __name__ == "__main__":
 
     config = {
         "max_length": 512,
-        "epochs": 10,
-        "batch_size": 4,
+        "epochs": 2,
+        "batch_size": 5,
         "learning_rate": 2e-5,
         "fp16": False,
         "fp16_opt_level": "O1",

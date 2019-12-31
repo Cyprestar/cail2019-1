@@ -186,7 +186,7 @@ class BertModelTrainer(object):
 
     def train(self, model_dir, kfold=1):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        n_gpu = 1  # torch.cuda.device_count()
+        n_gpu = torch.cuda.device_count()
         logger.info("***** Running training *****")
         logger.info("dataset: {}".format(self.dataset_path))
         logger.info("k-fold number: {}".format(kfold))
@@ -315,8 +315,8 @@ class BertModelTrainer(object):
                     global_step += 1
 
                     steps.set_description(
-                        "Epoch {}/{}, Loss {:.7f}".format(
-                            epoch + 1, self.param.epochs, loss.item()
+                        "Epoch {}/{}, Batch Loss {:.7f}, Mean Loss {:.7f}".format(
+                            epoch + 1, self.param.epochs, loss.item(), tr_loss / (step + 1)
                         )
                     )
 
@@ -356,15 +356,15 @@ class BertModelTrainer(object):
         :return:
         """
         num_padding = 0
-        if isinstance(model.model, torch.nn.DataParallel):
-            num_padding = (model.predict_batch_size - len(data) % model.predict_batch_size)
-            if num_padding != 0:
-                padding_data = TripletTextDataset(
-                    text_a_list=[""] * num_padding,
-                    text_b_list=[""] * num_padding,
-                    text_c_list=[""] * num_padding,
-                )
-                data = data.__add__(padding_data)
+        # if isinstance(model.model, torch.nn.DataParallel):
+        #     num_padding = (model.predict_batch_size - len(data) % model.predict_batch_size)
+        #     if num_padding != 0:
+        #         padding_data = TripletTextDataset(
+        #             text_a_list=[""] * num_padding,
+        #             text_b_list=[""] * num_padding,
+        #             text_c_list=[""] * num_padding,
+        #         )
+        #         data = data.__add__(padding_data)
 
         sampler = SequentialSampler(data)
         collate_fn = get_collator(model.max_length, model.device, model.tokenizer)

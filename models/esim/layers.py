@@ -110,6 +110,8 @@ class Seq2SeqEncoder(nn.Module):
             reordered_outputs: The outputs (hidden states) of the encoder for
                 the sequences in the input batch, in the same order.
         """
+        self._encoder.flatten_parameters()
+
         sorted_batch, sorted_lengths, _, restoration_idx =\
             sort_by_seq_lens(sequences_batch, sequences_lengths)
         packed_batch = nn.utils.rnn.pack_padded_sequence(sorted_batch,

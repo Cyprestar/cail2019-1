@@ -24,12 +24,12 @@ class BertForSimMatchModel(BertPreTrainedModel):
         self._attention = SoftmaxAttention()
         self._projection = nn.Sequential(nn.Linear(4 * config.hidden_size, config.hidden_size),
                                          nn.ReLU())
-        # self._composition = Seq2SeqEncoder(nn.LSTM,
-        #                                    config.hidden_size,
-        #                                    config.hidden_size,
-        #                                    bidirectional=True)
+        self._composition = Seq2SeqEncoder(nn.LSTM,
+                                           config.hidden_size,
+                                           config.hidden_size,
+                                           bidirectional=True)
         self._classification = nn.Sequential(nn.Dropout(p=config.hidden_dropout_prob),
-                                             nn.Linear(4 * config.hidden_size, config.hidden_size),
+                                             nn.Linear(4 * 2 * config.hidden_size, config.hidden_size),
                                              nn.Tanh(),
                                              nn.Dropout(p=config.hidden_dropout_prob),
                                              nn.Linear(config.hidden_size, 2))
@@ -67,17 +67,17 @@ class BertForSimMatchModel(BertPreTrainedModel):
 
         # projected_ab = self._rnn_dropout(projected_ab)
         # projected_ac = self._rnn_dropout(projected_ac)
-        #
-        # v_ai = self._composition(projected_ab, ab_length)
-        # v_bj = self._composition(projected_ac, ac_length)
 
-        v_a_avg = torch.sum(projected_ab * ab_mask.unsqueeze(1)
+        v_ai = self._composition(projected_ab, ab_length)
+        v_bj = self._composition(projected_ac, ac_length)
+
+        v_a_avg = torch.sum(v_ai * ab_mask.unsqueeze(1)
                             .transpose(2, 1), dim=1) / torch.sum(ab_mask, dim=1, keepdim=True)
-        v_b_avg = torch.sum(projected_ac * ac_mask.unsqueeze(1)
+        v_b_avg = torch.sum(v_bj * ac_mask.unsqueeze(1)
                             .transpose(2, 1), dim=1) / torch.sum(ac_mask, dim=1, keepdim=True)
 
-        v_a_max, _ = replace_masked(projected_ab, ab_mask, -1e7).max(dim=1)
-        v_b_max, _ = replace_masked(projected_ac, ac_mask, -1e7).max(dim=1)
+        v_a_max, _ = replace_masked(v_ai, ab_mask, -1e7).max(dim=1)
+        v_b_max, _ = replace_masked(v_bj, ac_mask, -1e7).max(dim=1)
 
         v = torch.cat([v_a_avg, v_a_max, v_b_avg, v_b_max], dim=1)
 
