@@ -121,7 +121,8 @@ class Seq2SeqEncoder(nn.Module):
         outputs, _ = self._encoder(packed_batch, None)
 
         outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs,
-                                                      batch_first=True)
+                                                      batch_first=True,
+                                                      total_length=512)
         reordered_outputs = outputs.index_select(0, restoration_idx)
 
         return reordered_outputs

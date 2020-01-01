@@ -202,6 +202,7 @@ class BertModelTrainer(object):
         torch.manual_seed(42)
         if n_gpu > 0:
             torch.cuda.manual_seed_all(42)
+            torch.backends.cudnn.deterministic = True
 
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
@@ -265,6 +266,7 @@ class BertModelTrainer(object):
             logger.info("  Num steps = %d", num_train_optimization_steps)
 
             train_sampler = RandomSampler(train_data)
+            # RandomSampler is equal to shuffle=True
 
             collate_fn = get_collator(self.param.max_length, device, tokenizer)
 
@@ -275,7 +277,7 @@ class BertModelTrainer(object):
                 shuffle=False,
                 num_workers=0,
                 collate_fn=collate_fn,
-                drop_last=True,
+                drop_last=False,
             )
             bert_model.train()
             for epoch in range(int(self.param.epochs)):

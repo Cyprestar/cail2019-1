@@ -166,7 +166,7 @@ class InputExample(object):
             _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
         else:
             if len(tokens_a) > max_seq_length - 2:
-                tokens_a = tokens_a[: (max_seq_length - 2)]
+                tokens_a = tokens_a[len(tokens_a) - (max_seq_length - 2):]
 
         # https://huggingface.co/transformers/model_doc/bert.html?highlight=bertmodel#transformers.BertModel
         # The convention in BERT is:
