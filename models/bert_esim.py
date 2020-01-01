@@ -20,9 +20,16 @@ class BertForSimMatchModel(BertPreTrainedModel):
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
         self.init_weights()
 
+        self._embedding = self.bert.embeddings.word_embeddings
+
+        self._encoding = Seq2SeqEncoder(nn.LSTM,
+                                        config.hidden_size,
+                                        config.hidden_size,
+                                        bidirectional=True)
+
         self._rnn_dropout = RNNDropout(p=config.hidden_dropout_prob)
         self._attention = SoftmaxAttention()
-        self._projection = nn.Sequential(nn.Linear(4 * config.hidden_size, config.hidden_size),
+        self._projection = nn.Sequential(nn.Linear(4 * 2 * config.hidden_size, config.hidden_size),
                                          nn.ReLU())
         self._composition = Seq2SeqEncoder(nn.LSTM,
                                            config.hidden_size,
@@ -42,9 +49,9 @@ class BertForSimMatchModel(BertPreTrainedModel):
 
         # the parameter is: input_ids, attention_mask, token_type_ids
         # which is corresponding to input_ids, input_mask and segment_ids in InputFeatures
-        a_output = self.bert(*a)[0]
-        b_output = self.bert(*b)[0]
-        c_output = self.bert(*c)[0]
+        a_output = self._embedding(a[0])
+        b_output = self._embedding(b[0])
+        c_output = self._embedding(c[0])
         # The return value: sequence_output, pooled_output, (hidden_states), (attentions)
 
         v_ab = self.siamese(a_output, b_output, a_mask, b_mask)
@@ -77,6 +84,9 @@ class BertForSimMatchModel(BertPreTrainedModel):
 
         a_length = a_mask.sum(dim=-1).long()
         b_length = b_mask.sum(dim=-1).long()
+
+        a_output = self._encoding(a_output, a_length)
+        b_output = self._encoding(b_output, b_length)
 
         attended_a, attended_b = self._attention(a_output, a_mask, b_output, b_mask)
 
