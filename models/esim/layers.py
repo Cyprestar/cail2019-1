@@ -123,6 +123,7 @@ class Seq2SeqEncoder(nn.Module):
         outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs,
                                                       batch_first=True,
                                                       total_length=512)
+        # https://pytorch.org/docs/stable/notes/faq.html#my-recurrent-network-doesn-t-work-with-data-parallelism
         reordered_outputs = outputs.index_select(0, restoration_idx)
 
         return reordered_outputs

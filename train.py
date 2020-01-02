@@ -38,9 +38,9 @@ if __name__ == "__main__":
     config = {
         "max_length": 512,
         "epochs": 2,
-        "batch_size": 5,
+        "batch_size": 6,
         "learning_rate": 2e-5,
-        "fp16": False,
+        "fp16": True,
         "fp16_opt_level": "O1",
         "max_grad_norm": 1.0,
         "warmup_steps": 0.1,
