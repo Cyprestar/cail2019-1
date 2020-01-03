@@ -99,6 +99,15 @@ def masked_softmax(tensor, mask):
     return result.view(*tensor_shape)
 
 
+def normal_softmax(tensor):
+    tensor_shape = tensor.size()
+    reshaped_tensor = tensor.view(-1, tensor_shape[-1])
+    result = nn.functional.softmax(reshaped_tensor, dim=-1)
+    # 1e-13 is added to avoid divisions by zero.
+    result = result / (result.sum(dim=-1, keepdim=True) + 1e-13)
+    return result.view(*tensor_shape)
+
+
 # Code widely inspired from:
 # https://github.com/allenai/allennlp/blob/master/allennlp/nn/util.py.
 def weighted_sum(tensor, weights, mask):

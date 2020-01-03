@@ -4,8 +4,9 @@ Definition of custom layers for the ESIM model.
 # Aurelien Coet, 2018.
 
 import torch.nn as nn
+# import numpy as np
 
-from .utils import sort_by_seq_lens, masked_softmax, weighted_sum
+from .utils import sort_by_seq_lens, masked_softmax, weighted_sum  # normal_softmax,
 
 
 # Class widely inspired from:
@@ -76,8 +77,7 @@ class Seq2SeqEncoder(nn.Module):
             bidirectional: If True, the encoder of the module is bidirectional.
                 Defaults to False.
         """
-        assert issubclass(rnn_type, nn.RNNBase),\
-            "rnn_type must be a class inheriting from torch.nn.RNNBase"
+        assert issubclass(rnn_type, nn.RNNBase), "rnn_type must be a class inheriting from torch.nn.RNNBase"
 
         super(Seq2SeqEncoder, self).__init__()
 
@@ -112,8 +112,7 @@ class Seq2SeqEncoder(nn.Module):
         """
         self._encoder.flatten_parameters()
 
-        sorted_batch, sorted_lengths, _, restoration_idx =\
-            sort_by_seq_lens(sequences_batch, sequences_lengths)
+        sorted_batch, sorted_lengths, _, restoration_idx = sort_by_seq_lens(sequences_batch, sequences_lengths)
         packed_batch = nn.utils.rnn.pack_padded_sequence(sorted_batch,
                                                          sorted_lengths,
                                                          batch_first=True)
@@ -168,22 +167,25 @@ class SoftmaxAttention(nn.Module):
         """
         # Dot product between premises and hypotheses in each sequence of
         # the batch.
-        similarity_matrix = premise_batch.bmm(hypothesis_batch.transpose(2, 1)
-                                                              .contiguous())
+        similarity_matrix = premise_batch.bmm(hypothesis_batch.transpose(2, 1).contiguous())
 
         # Softmax attention weights.
         prem_hyp_attn = masked_softmax(similarity_matrix, hypothesis_mask)
-        hyp_prem_attn = masked_softmax(similarity_matrix.transpose(1, 2)
-                                                        .contiguous(),
-                                       premise_mask)
+        hyp_prem_attn = masked_softmax(similarity_matrix.transpose(1, 2).contiguous(), premise_mask)
 
         # Weighted sums of the hypotheses for the the premises attention,
         # and vice-versa for the attention of the hypotheses.
-        attended_premises = weighted_sum(hypothesis_batch,
-                                         prem_hyp_attn,
-                                         premise_mask)
-        attended_hypotheses = weighted_sum(premise_batch,
-                                           hyp_prem_attn,
-                                           hypothesis_mask)
+        attended_premises = weighted_sum(hypothesis_batch, prem_hyp_attn, premise_mask)
+        attended_hypotheses = weighted_sum(premise_batch, hyp_prem_attn, hypothesis_mask)
 
-        return attended_premises, attended_hypotheses
+        # sqrt_dim = np.sqrt(premise_batch.size()[2])
+        #
+        # self_premises_matrix = premise_batch.bmm(premise_batch.transpose(2, 1).contiguous()) / sqrt_dim
+        # self_hypotheses_matrix = hypothesis_batch.bmm(hypothesis_batch.transpose(2, 1).contiguous()) / sqrt_dim
+        #
+        # self_premises_attn = normal_softmax(self_premises_matrix)
+        # self_hypotheses_attn = normal_softmax(self_hypotheses_matrix)
+        # self_premises = self_premises_attn.bmm(premise_batch)
+        # self_hypotheses = self_hypotheses_attn.bmm(hypothesis_batch)
+
+        return attended_premises, attended_hypotheses  # , self_premises, self_hypotheses

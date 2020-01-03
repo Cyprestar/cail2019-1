@@ -16,11 +16,13 @@ class BertForSimMatchModel(BertPreTrainedModel):
     def __init__(self, config):
         super(BertForSimMatchModel, self).__init__(config)
         self.bert = BertModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.seq_relationship = nn.Linear(config.hidden_size, 2)
+        # self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        # self.seq_relationship = nn.Linear(config.hidden_size, 2)
         self.init_weights()
 
-        self._rnn_dropout = RNNDropout(p=config.hidden_dropout_prob)
+        # dropout = 0.5
+        # self._rnn_dropout = RNNDropout(p=dropout)
+
         self._attention = SoftmaxAttention()
         self._projection = nn.Sequential(nn.Linear(4 * config.hidden_size, config.hidden_size),
                                          nn.ReLU())
@@ -52,6 +54,7 @@ class BertForSimMatchModel(BertPreTrainedModel):
 
         subtraction = v_ab - v_ac
 
+        # TODO: Try three solutions
         # Solution 1: v_ab - v_ac
         # Solution 2: cat(v_ab, v_ac)
         # Solution 3: margin - sim_a + sim_b
@@ -95,8 +98,9 @@ class BertForSimMatchModel(BertPreTrainedModel):
         projected_a = self._projection(enhanced_a)
         projected_b = self._projection(enhanced_b)
 
-        # projected_ab = self._rnn_dropout(projected_ab)
-        # projected_ac = self._rnn_dropout(projected_ac)
+        # TODO: Add RNN Dropout
+        # projected_a = self._rnn_dropout(projected_a)
+        # projected_b = self._rnn_dropout(projected_b)
 
         v_ai = self._composition(projected_a, a_length)
         v_bj = self._composition(projected_b, b_length)

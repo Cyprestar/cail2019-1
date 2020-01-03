@@ -158,16 +158,11 @@ class InputExample(object):
         self.label = label
 
     @staticmethod
-    def _text_pair_to_feature(text_a, text_b, tokenizer, max_seq_length):
-        tokens_a = tokenizer.tokenize(text_a)
-        tokens_b = None
+    def _text_pair_to_feature(text, tokenizer, max_seq_length):
+        tokens = tokenizer.tokenize(text)
 
-        if text_b:
-            tokens_b = tokenizer.tokenize(text_b)
-            _truncate_seq_pair(tokens_a, tokens_b, max_seq_length - 3)
-        else:
-            if len(tokens_a) > max_seq_length - 2:
-                tokens_a = tokens_a[len(tokens_a) - (max_seq_length - 2):]
+        if len(tokens) > max_seq_length - 2:
+            tokens = tokens[len(tokens) - (max_seq_length - 2):]
 
         # https://huggingface.co/transformers/model_doc/bert.html?highlight=bertmodel#transformers.BertModel
         # The convention in BERT is:
@@ -188,12 +183,8 @@ class InputExample(object):
         # For classification tasks, the first vector (corresponding to [CLS]) is
         # used as as the "sentence vector". Note that this only makes sense because
         # the entire model is fine-tuned.
-        tokens = ["[CLS]"] + tokens_a + ["[SEP]"]
+        tokens = ["[CLS]"] + tokens + ["[SEP]"]
         segment_ids = [0] * len(tokens)
-
-        if tokens_b:
-            tokens += tokens_b + ["[SEP]"]
-            segment_ids += [1] * (len(tokens_b) + 1)
 
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
         # The mask has 1 for real tokens and 0 for padding tokens. Only real
@@ -213,24 +204,7 @@ class InputExample(object):
         return input_ids, segment_ids, input_mask
 
     def to_two_pair_feature(self, tokenizer, max_seq_length) -> Tuple[InputFeatures, InputFeatures, InputFeatures]:
-        a = self._text_pair_to_feature(self.text_a, None, tokenizer, max_seq_length)
-        b = self._text_pair_to_feature(self.text_b, None, tokenizer, max_seq_length)
-        c = self._text_pair_to_feature(self.text_c, None, tokenizer, max_seq_length)
+        a = self._text_pair_to_feature(self.text_a, tokenizer, max_seq_length)
+        b = self._text_pair_to_feature(self.text_b, tokenizer, max_seq_length)
+        c = self._text_pair_to_feature(self.text_c, tokenizer, max_seq_length)
         return InputFeatures(*a), InputFeatures(*b), InputFeatures(*c)
-
-
-def _truncate_seq_pair(tokens_a: list, tokens_b: list, max_length):
-    """Truncates a sequence pair in place to the maximum length."""
-
-    # This is a simple heuristic which will always truncate the longer sequence
-    # one token at a time. This makes more sense than truncating an equal percent
-    # of tokens from each, since if one sequence is very short then each token
-    # that's truncated likely contains more information than a longer sequence.
-    while True:
-        total_length = len(tokens_a) + len(tokens_b)
-        if total_length <= max_length:
-            break
-        if len(tokens_a) > len(tokens_b):
-            tokens_a.pop(0)
-        else:
-            tokens_b.pop(0)
