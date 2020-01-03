@@ -4,7 +4,7 @@ from torch.autograd import Variable
 from torch.nn import CrossEntropyLoss
 from transformers.modeling_bert import BertPreTrainedModel, BertModel
 
-from .esim.layers import RNNDropout, Seq2SeqEncoder, SoftmaxAttention
+from .esim.layers import Seq2SeqEncoder, SoftmaxAttention  # ,RNNDropout
 from .esim.utils import replace_masked
 
 
@@ -23,6 +23,9 @@ class BertForSimMatchModel(BertPreTrainedModel):
         # dropout = 0.5
         # self._rnn_dropout = RNNDropout(p=dropout)
 
+        feature_size = 28
+        self._feature = nn.Linear(feature_size, config.hidden_size)
+
         self._attention = SoftmaxAttention()
         self._projection = nn.Sequential(nn.Linear(4 * config.hidden_size, config.hidden_size),
                                          nn.ReLU())
@@ -30,27 +33,35 @@ class BertForSimMatchModel(BertPreTrainedModel):
                                            config.hidden_size,
                                            config.hidden_size,
                                            bidirectional=True)
-        self._classification = nn.Sequential(nn.Dropout(p=config.hidden_dropout_prob),
+        self._classification = nn.Sequential(nn.Dropout(p=config.hidden_dropout_prob),  # p=dropout
                                              nn.Linear(4 * 2 * config.hidden_size, config.hidden_size),
                                              nn.Tanh(),
-                                             nn.Dropout(p=config.hidden_dropout_prob),
+                                             nn.Dropout(p=config.hidden_dropout_prob),  # p=dropout
                                              nn.Linear(config.hidden_size, 2))
         self.apply(self.init_esim_weights)
 
     def forward(self, a, b, c, labels=None, mode="prob"):
-        a_mask = a[1].float()
-        b_mask = b[1].float()
-        c_mask = c[1].float()
-
         # the parameter is: input_ids, attention_mask, token_type_ids
         # which is corresponding to input_ids, input_mask and segment_ids in InputFeatures
-        a_output = self.bert(*a)[0]
-        b_output = self.bert(*b)[0]
-        c_output = self.bert(*c)[0]
+        a_output = self.bert(*a[:3])[0]
+        b_output = self.bert(*b[:3])[0]
+        c_output = self.bert(*c[:3])[0]
         # The return value: sequence_output, pooled_output, (hidden_states), (attentions)
 
-        v_ab = self.siamese(a_output, b_output, a_mask, b_mask)
-        v_ac = self.siamese(a_output, c_output, a_mask, c_mask)
+        a_feature = self._feature(a[3].unsqueeze(0))
+        b_feature = self._feature(b[3].unsqueeze(0))
+        c_feature = self._feature(c[3].unsqueeze(0))
+
+        a_extend = torch.cat([a_feature, a_output], dim=1)
+        b_extend = torch.cat([b_feature, b_output], dim=1)
+        c_extend = torch.cat([c_feature, c_output], dim=1)
+
+        a_mask = torch.cat([a[4], a[1]], dim=1).float()
+        b_mask = torch.cat([b[4], b[1]], dim=1).float()
+        c_mask = torch.cat([c[4], c[1]], dim=1).float()
+
+        v_ab = self.siamese(a_extend, b_extend, a_mask, b_mask)
+        v_ac = self.siamese(a_extend, c_extend, a_mask, c_mask)
 
         subtraction = v_ab - v_ac
 

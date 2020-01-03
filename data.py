@@ -7,6 +7,8 @@ import torch
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import default_collate
 
+from models.feature import extract_features_and_replace
+
 
 class TripletTextDataset(Dataset):
     def __init__(self, text_a_list, text_b_list, text_c_list, label_list=None):
@@ -125,16 +127,19 @@ def get_collator(max_len, device, tokenizer):
 class InputFeatures(object):
     """A single set of features of data."""
 
-    def __init__(self, input_ids, input_mask, segment_ids):
+    def __init__(self, input_ids, input_mask, segment_ids, features):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
+        self.features = features
 
-    def to_tensor(self, device) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def to_tensor(self, device) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return (
             torch.LongTensor(self.input_ids).to(device),
             torch.LongTensor(self.segment_ids).to(device),
             torch.LongTensor(self.input_mask).to(device),
+            torch.FloatTensor(self.features).to(device),
+            torch.LongTensor([1]).to(device)
         )
 
 
@@ -159,6 +164,7 @@ class InputExample(object):
 
     @staticmethod
     def _text_pair_to_feature(text, tokenizer, max_seq_length):
+        text, features = extract_features_and_replace(text)
         tokens = tokenizer.tokenize(text)
 
         if len(tokens) > max_seq_length - 2:
@@ -201,7 +207,7 @@ class InputExample(object):
         assert len(input_mask) == max_seq_length
         assert len(segment_ids) == max_seq_length
 
-        return input_ids, segment_ids, input_mask
+        return input_ids, segment_ids, input_mask, features
 
     def to_two_pair_feature(self, tokenizer, max_seq_length) -> Tuple[InputFeatures, InputFeatures, InputFeatures]:
         a = self._text_pair_to_feature(self.text_a, tokenizer, max_seq_length)

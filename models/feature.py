@@ -144,3 +144,5 @@ def extract_features_and_replace(text):
 
     return main.strip('\n'), lender_type + [lender_count] + borrower_type + [borrower_count] + guarantee + [interest] + [
         interest_value] + interest_type + payment + repayment + agreement
+
+    # TODO: QuantileTransformer?
