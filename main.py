@@ -6,6 +6,7 @@ import torch
 
 from model import BertSimMatchModel
 from data import TripletTextDataset
+from util import seed_all
 
 logging.disable(sys.maxsize)
 
@@ -20,7 +21,9 @@ if len(sys.argv) == 3:
 inf = open(input_path, "r", encoding="utf-8")
 ouf = open(output_path, "w", encoding="utf-8")
 
-MODEL_DIR = "./model7"
+seed_all(42)
+
+MODEL_DIR = "./model16"
 model = BertSimMatchModel.load(MODEL_DIR, torch.device("cpu"))
 print('Model: ' + MODEL_DIR)
 
