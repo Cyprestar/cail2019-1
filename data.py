@@ -56,7 +56,7 @@ class TripletTextDataset(Dataset):
 
     @classmethod
     def from_jsons(cls, json_lines_file, use_augment=False):
-        with open(json_lines_file, encoding="utf-8") as f:
+        with open(json_lines_file, 'r', encoding="utf-8") as f:
             data = list(map(lambda line: json.loads(line), f))
         return cls.from_dict_list(data, use_augment)
 

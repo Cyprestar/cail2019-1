@@ -48,9 +48,9 @@ class BertForSimMatchModel(BertPreTrainedModel):
         c_output = self.bert(*c[:3])[0]
         # The return value: sequence_output, pooled_output, (hidden_states), (attentions)
 
-        a_feature = self._feature(a[3].unsqueeze(0))
-        b_feature = self._feature(b[3].unsqueeze(0))
-        c_feature = self._feature(c[3].unsqueeze(0))
+        a_feature = self._feature(a[3].unsqueeze(1))
+        b_feature = self._feature(b[3].unsqueeze(1))
+        c_feature = self._feature(c[3].unsqueeze(1))
 
         a_extend = torch.cat([a_feature, a_output], dim=1)
         b_extend = torch.cat([b_feature, b_output], dim=1)

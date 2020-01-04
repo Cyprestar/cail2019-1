@@ -27,12 +27,14 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 
 if __name__ == "__main__":
-    BERT_PRETRAINED_MODEL = "./bert/ms"
+    bert_pretrained_model = './bert/ms'
 
-    # TRAINING_DATASET = 'data/train/input.txt'  # for quick dev
-    TRAINING_DATASET = "./data/raw/CAIL2019-SCM-big/SCM_5k.json"
+    training_dataset = './data/raw/CAIL2019-SCM-big/SCM_5k.json'
 
-    test_input_path = "./data/test/input.txt"
+    valid_input_path = './data/valid/valid.json'
+    valid_ground_truth_path = './data/valid/ground_truth.txt'
+
+    test_input_path = "./data/test/test.json"
     test_ground_truth_path = "./data/test/ground_truth.txt"
 
     config = {
@@ -50,10 +52,12 @@ if __name__ == "__main__":
     algorithm = "BertForSimMatchModel"
 
     trainer = BertModelTrainer(
-        TRAINING_DATASET,
-        BERT_PRETRAINED_MODEL,
+        training_dataset,
+        bert_pretrained_model,
         hyper_parameter,
         algorithm,
+        valid_input_path,
+        valid_ground_truth_path,
         test_input_path,
         test_ground_truth_path,
     )

@@ -1,12 +1,10 @@
 import json
 import logging
 import os
-import random
 from typing import Tuple, List, Union
 
 import numpy as np
 import torch
-from sklearn.model_selection import KFold
 
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data import Dataset
@@ -19,6 +17,7 @@ from transformers import (
 
 from config import HyperParameters, SimMatchModelConfig
 from data import TripletTextDataset, get_collator
+from util import seed_all
 from models.bert_esim import BertForSimMatchModel
 
 logger = logging.getLogger("train model")
@@ -108,6 +107,8 @@ class BertModelTrainer(object):
             bert_model_dir,
             param: HyperParameters,
             algorithm,
+            valid_input_path,
+            valid_ground_truth_path,
             test_input_path,
             test_ground_truth_path,
     ) -> None:
@@ -123,13 +124,15 @@ class BertModelTrainer(object):
         self.dataset_path = dataset_path
         self.bert_model_dir = bert_model_dir
         self.param = param
+        self.valid_input_path = valid_input_path
+        self.valid_ground_truth_path = valid_ground_truth_path
         self.test_input_path = test_input_path
         self.test_ground_truth_path = test_ground_truth_path
         self.algorithm = algorithm
         self.model_class = algorithm_map[self.algorithm]
         logger.info("Algorithm: " + algorithm)
 
-    def load_dataset(self, n_splits: int = 1) -> List[Tuple[TripletTextDataset, TripletTextDataset, List[str]]]:
+    def load_dataset(self) -> Tuple[TripletTextDataset, TripletTextDataset, List[str], TripletTextDataset, List[str]]:
         """
         划分k折交叉验证数据集用于cv
 
@@ -137,52 +140,15 @@ class BertModelTrainer(object):
         :return: List[(train_data, test_data, test_labels_list)]
         """
 
-        data = []
+        train_data = TripletTextDataset.from_jsons(self.dataset_path, use_augment=True)
+        valid_data = TripletTextDataset.from_jsons(self.valid_input_path)
+        with open(self.valid_ground_truth_path, 'r', encoding='utf-8') as f:
+            valid_label_list = [line.strip() for line in f.readlines()]
+        test_data = TripletTextDataset.from_jsons(self.test_input_path)
+        with open(self.test_ground_truth_path) as f:
+            test_label_list = [line.strip() for line in f.readlines()]
 
-        if n_splits == 1:
-            train_data = TripletTextDataset.from_jsons(self.dataset_path, use_augment=True)
-            test_data = TripletTextDataset.from_jsons(self.test_input_path)
-            with open(self.test_ground_truth_path) as f:
-                test_label_list = [line.strip() for line in f.readlines()]
-
-            data.append((train_data, test_data, test_label_list))
-            return data
-
-        raw_data_list = []
-        with open(self.dataset_path, encoding="utf-8") as raw_input:
-            for line in raw_input:
-                raw_data_list.append(json.loads(line.strip(), encoding="utf-8"))
-
-        kf = KFold(n_splits, shuffle=True, random_state=42)
-        random.seed(42)
-        for train_index, test_index in kf.split(raw_data_list):
-            # 准备训练集
-            train_data_list = [raw_data_list[i] for i in train_index]
-            train_data = TripletTextDataset.from_dict_list(
-                train_data_list, use_augment=True
-            )
-
-            # 准备测试集，打乱BC顺序
-            test_data_list = [raw_data_list[i] for i in test_index]
-            shuffled_test_data_list = []
-            test_label_list = []
-            for item in test_data_list:
-                a = item["A"]
-                b = item["B"]
-                c = item["C"]
-
-                choice = int(random.getrandbits(1))
-                label = "B" if choice == 0 else "C"
-                if label == "C":
-                    item = {"A": a, "B": c, "C": b}
-
-                shuffled_test_data_list.append(item)
-                test_label_list.append(label)
-
-            test_data = TripletTextDataset.from_dict_list(shuffled_test_data_list)
-
-            data.append((train_data, test_data, test_label_list))
-        return data
+        return train_data, valid_data, valid_label_list, test_data, test_label_list
 
     def train(self, model_dir, kfold=1):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -197,153 +163,128 @@ class BertModelTrainer(object):
             )
         )
 
-        random.seed(42)
-        np.random.seed(42)
-        torch.manual_seed(42)
-        if n_gpu > 0:
-            torch.cuda.manual_seed_all(42)
-            torch.backends.cudnn.deterministic = True
+        seed_all(42)
 
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
 
         tokenizer = BertTokenizer.from_pretrained(self.bert_model_dir, do_lower_case=True)
-        data = self.load_dataset(kfold)
+        train_data, valid_data, valid_label_list, test_data, test_label_list = self.load_dataset()
 
-        all_acc_list = []
-        for k, (train_data, test_data, test_label_list) in enumerate(data, start=1):
-            one_fold_acc_list = []
-            bert_model = self.model_class.from_pretrained(self.bert_model_dir, output_hidden_states=True)
-            bert_model.to(device)
+        bert_model = self.model_class.from_pretrained(self.bert_model_dir, output_hidden_states=True)
+        bert_model.to(device)
 
-            config = bert_model.config
-            config.max_len = self.param.max_length
-            config.algorithm = self.algorithm
+        config = bert_model.config
+        config.max_len = self.param.max_length
+        config.algorithm = self.algorithm
 
-            num_train_optimization_steps = (int(len(train_data) / self.param.batch_size) * self.param.epochs)
+        num_train_optimization_steps = (int(len(train_data) / self.param.batch_size) * self.param.epochs)
 
-            param_optimizer = list(bert_model.named_parameters())
-            no_decay = ["bias", "LayerNorm.weight"]
-            optimizer_grouped_parameters = [
-                {
-                    "params": [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
-                    "weight_decay": 0.01,
-                },
-                {
-                    "params": [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
-                    "weight_decay": 0.0,
-                },
-            ]
+        param_optimizer = list(bert_model.named_parameters())
+        no_decay = ["bias", "LayerNorm.weight"]
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+                "weight_decay": 0.01,
+            },
+            {
+                "params": [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
+                "weight_decay": 0.0,
+            },
+        ]
 
-            if self.param.warmup_steps < 1:
-                num_warmup_steps = (num_train_optimization_steps * self.param.warmup_steps)
-            else:
-                num_warmup_steps = self.param.warmup_steps
-            optimizer = AdamW(optimizer_grouped_parameters, lr=self.param.learning_rate, eps=1e-8)
-            scheduler = get_linear_schedule_with_warmup(
-                optimizer,
-                num_warmup_steps=num_warmup_steps,
-                num_training_steps=num_train_optimization_steps,
-            )
+        if self.param.warmup_steps < 1:
+            num_warmup_steps = (num_train_optimization_steps * self.param.warmup_steps)
+        else:
+            num_warmup_steps = self.param.warmup_steps
+        optimizer = AdamW(optimizer_grouped_parameters, lr=self.param.learning_rate, eps=1e-8)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=num_train_optimization_steps,
+        )
 
-            if self.param.fp16:
-                try:
-                    from apex import amp
-                except ImportError:
-                    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
+        if self.param.fp16:
+            try:
+                from apex import amp
+            except ImportError:
+                raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
 
-                bert_model, optimizer = amp.initialize(bert_model, optimizer, opt_level=self.param.fp16_opt_level)
+            bert_model, optimizer = amp.initialize(bert_model, optimizer, opt_level=self.param.fp16_opt_level)
 
-            if n_gpu > 1:
-                bert_model = torch.nn.DataParallel(bert_model)
+        if n_gpu > 1:
+            bert_model = torch.nn.DataParallel(bert_model)
 
-            global_step = 0
-            bert_model.zero_grad()
+        global_step = 0
+        bert_model.zero_grad()
 
-            logger.info("***** fold {}/{} *****".format(k, kfold))
-            logger.info("  Num examples = %d", len(train_data))
-            logger.info("  Batch size = %d", self.param.batch_size)
-            logger.info("  Num steps = %d", num_train_optimization_steps)
+        logger.info("Num examples = %d", len(train_data))
+        logger.info("Batch size = %d", self.param.batch_size)
+        logger.info("Num steps = %d", num_train_optimization_steps)
 
-            train_sampler = RandomSampler(train_data)
-            # RandomSampler is equal to shuffle=True
+        train_sampler = RandomSampler(train_data)
+        # RandomSampler is equal to shuffle=True
 
-            collate_fn = get_collator(self.param.max_length, device, tokenizer)
+        collate_fn = get_collator(self.param.max_length, device, tokenizer)
 
-            train_dataloader = DataLoader(
-                dataset=train_data,
-                sampler=train_sampler,
-                batch_size=self.param.batch_size,
-                shuffle=False,
-                num_workers=0,
-                collate_fn=collate_fn,
-                drop_last=False,
-            )
-            bert_model.train()
-            for epoch in range(int(self.param.epochs)):
-                tr_loss = 0
-                steps = tqdm(train_dataloader)
-                for step, batch in enumerate(steps):
-                    # if step % 200 == 0:
-                    #     model = BertSimMatchModel(bert_model, tokenizer, self.param.max_length, self.algorithm)
-                    #     acc, loss = self.evaluate(model, test_data, test_label_list)
-                    #     logger.info(
-                    #         "Epoch {}, step {}/{}, train Loss: {:.7f}, eval acc: {}, eval loss: {:.7f}".format(
-                    #             epoch + 1, step, num_train_optimization_steps, tr_loss, acc, loss))
-                    #     bert_model.train()
+        train_dataloader = DataLoader(
+            dataset=train_data,
+            sampler=train_sampler,
+            batch_size=self.param.batch_size,
+            shuffle=False,
+            num_workers=0,
+            collate_fn=collate_fn,
+            drop_last=False,
+        )
 
-                    # define a new function to compute loss values for both output_modes
-                    loss = bert_model(*batch, mode="loss")
+        bert_model.train()
+        for epoch in range(int(self.param.epochs)):
+            tr_loss = 0
+            steps = tqdm(train_dataloader)
+            for step, batch in enumerate(steps):
 
-                    if n_gpu > 1:
-                        loss = loss.mean()  # mean() to average on multi-gpu.
+                # define a new function to compute loss values for both output_modes
+                loss = bert_model(*batch, mode="loss")
 
-                    if self.param.fp16:
-                        with amp.scale_loss(loss, optimizer) as scaled_loss:
-                            scaled_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(
-                            amp.master_params(optimizer), self.param.max_grad_norm
-                        )
-                    else:
-                        loss.backward()
-                        torch.nn.utils.clip_grad_norm_(
-                            bert_model.parameters(), self.param.max_grad_norm
-                        )
+                if n_gpu > 1:
+                    loss = loss.mean()  # mean() to average on multi-gpu.
 
-                    tr_loss += loss.item()
-                    optimizer.step()
-                    scheduler.step()  # Update learning rate schedule
-                    bert_model.zero_grad()
-                    global_step += 1
-
-                    steps.set_description(
-                        "Epoch {}/{}, Batch Loss {:.7f}, Mean Loss {:.7f}".format(
-                            epoch + 1, self.param.epochs, loss.item(), tr_loss / (step + 1)
-                        )
+                if self.param.fp16:
+                    with amp.scale_loss(loss, optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        amp.master_params(optimizer), self.param.max_grad_norm
+                    )
+                else:
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        bert_model.parameters(), self.param.max_grad_norm
                     )
 
-                model = BertSimMatchModel(bert_model, tokenizer, config)
-                acc, loss = self.evaluate(model, test_data, test_label_list)
-                one_fold_acc_list.append(acc)
-                logger.info(
-                    "Epoch {}, train Loss: {:.7f}, eval acc: {}, eval loss: {:.7f}".format(
-                        epoch + 1, tr_loss, acc, loss
+                tr_loss += loss.item()
+                optimizer.step()
+                scheduler.step()  # Update learning rate schedule
+                bert_model.zero_grad()
+                global_step += 1
+
+                steps.set_description(
+                    "Epoch {} / {}, Batch Loss {:.7f}, Mean Loss {:.7f}".format(
+                        epoch + 1, self.param.epochs, loss.item(), tr_loss / (step + 1)
                     )
                 )
-                bert_model.train()
-            all_acc_list.append(one_fold_acc_list)
-            model = BertSimMatchModel(bert_model, tokenizer, config)
-            model.save(model_dir)
 
-        logger.info("***** Stats *****")
-        # 计算k-fold的平均的acc
-        all_epoch_acc = list(zip(*all_acc_list))
-        logger.info("acc for each epoch:")
-        for epoch, acc in enumerate(all_epoch_acc, start=1):
+            model = BertSimMatchModel(bert_model, tokenizer, config)
+            valid_acc, valid_loss = self.evaluate(model, valid_data, valid_label_list)
+            test_acc, test_loss = self.evaluate(model, test_data, test_label_list)
             logger.info(
-                "epoch %d, mean: %.5f, std: %.5f"
-                % (epoch, float(np.mean(acc)), float(np.std(acc)))
+                "Epoch {}, train Loss: {:.7f}, eval acc: {}, eval loss: {:.7f}, test acc: {}, test loss: {:.7f}".format(
+                    epoch + 1, tr_loss, valid_acc, valid_loss, test_acc, test_loss
+                )
             )
+            bert_model.train()
+
+        model = BertSimMatchModel(bert_model, tokenizer, config)
+        model.save(model_dir)
 
         logger.info("***** Training complete *****")
 
@@ -351,11 +292,6 @@ class BertModelTrainer(object):
     def evaluate(model: BertSimMatchModel, data: TripletTextDataset, real_label_list: List[str]):
         """
         评估模型，计算acc
-
-        :param model:
-        :param data:
-        :param real_label_list:
-        :return:
         """
         num_padding = 0
         # if isinstance(model.model, torch.nn.DataParallel):
