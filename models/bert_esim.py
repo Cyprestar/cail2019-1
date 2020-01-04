@@ -4,7 +4,7 @@ from torch.autograd import Variable
 from torch.nn import CrossEntropyLoss
 from transformers.modeling_bert import BertPreTrainedModel, BertModel
 
-from .esim.layers import Seq2SeqEncoder, SoftmaxAttention  # ,RNNDropout
+from .esim.layers import Seq2SeqEncoder, SoftmaxAttention, SelfAttention  # ,RNNDropout
 from .esim.utils import replace_masked
 
 
@@ -33,6 +33,15 @@ class BertForSimMatchModel(BertPreTrainedModel):
                                            config.hidden_size,
                                            config.hidden_size,
                                            bidirectional=True)
+
+        self._self_attention = SelfAttention()
+        self._self_projection = nn.Sequential(nn.Linear(4 * 2 * config.hidden_size, config.hidden_size),
+                                              nn.ReLU())
+        self._self_composition = Seq2SeqEncoder(nn.LSTM,
+                                                config.hidden_size,
+                                                config.hidden_size,
+                                                bidirectional=True)
+
         self._classification = nn.Sequential(nn.Dropout(p=config.hidden_dropout_prob),  # p=dropout
                                              nn.Linear(4 * 2 * config.hidden_size, config.hidden_size),
                                              nn.Tanh(),
@@ -113,8 +122,19 @@ class BertForSimMatchModel(BertPreTrainedModel):
         # projected_a = self._rnn_dropout(projected_a)
         # projected_b = self._rnn_dropout(projected_b)
 
-        v_ai = self._composition(projected_a, a_length)
-        v_bj = self._composition(projected_b, b_length)
+        h_ai = self._composition(projected_a, a_length)
+        h_bj = self._composition(projected_b, b_length)
+
+        self_a, self_b = self._self_attention(h_ai, h_bj)
+
+        enhanced_self_a = torch.cat([h_ai, self_a, h_ai - self_a, h_ai * self_a], dim=-1)
+        enhanced_self_b = torch.cat([h_bj, self_b, h_bj - self_b, h_bj * self_b], dim=-1)
+
+        projected_self_a = self._self_projection(enhanced_self_a)
+        projected_self_b = self._self_projection(enhanced_self_b)
+
+        v_ai = self._self_composition(projected_self_a, a_length)
+        v_bj = self._self_composition(projected_self_b, b_length)
 
         v_a_avg = torch.sum(v_ai * a_mask.unsqueeze(1)
                             .transpose(2, 1), dim=1) / torch.sum(a_mask, dim=1, keepdim=True)

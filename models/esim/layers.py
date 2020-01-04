@@ -4,9 +4,9 @@ Definition of custom layers for the ESIM model.
 # Aurelien Coet, 2018.
 
 import torch.nn as nn
-# import numpy as np
+import numpy as np
 
-from .utils import sort_by_seq_lens, masked_softmax, weighted_sum  # normal_softmax,
+from .utils import sort_by_seq_lens, masked_softmax, weighted_sum, normal_softmax
 
 
 # Class widely inspired from:
@@ -189,3 +189,19 @@ class SoftmaxAttention(nn.Module):
         # self_hypotheses = self_hypotheses_attn.bmm(hypothesis_batch)
 
         return attended_premises, attended_hypotheses  # , self_premises, self_hypotheses
+
+
+class SelfAttention(nn.Module):
+
+    def forward(self, premise_batch, hypothesis_batch):
+        sqrt_dim = np.sqrt(premise_batch.size()[2])
+
+        self_premises_matrix = premise_batch.bmm(premise_batch.transpose(2, 1).contiguous()) / sqrt_dim
+        self_hypotheses_matrix = hypothesis_batch.bmm(hypothesis_batch.transpose(2, 1).contiguous()) / sqrt_dim
+
+        self_premises_attn = normal_softmax(self_premises_matrix)
+        self_hypotheses_attn = normal_softmax(self_hypotheses_matrix)
+        self_premises = self_premises_attn.bmm(premise_batch)
+        self_hypotheses = self_hypotheses_attn.bmm(hypothesis_batch)
+
+        return self_premises, self_hypotheses
