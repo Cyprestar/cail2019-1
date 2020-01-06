@@ -242,9 +242,12 @@ class BertModelTrainer(object):
             tr_loss = 0
             steps = tqdm(train_dataloader)
             for step, batch in enumerate(steps):
-
+                bert_model.zero_grad()
                 # define a new function to compute loss values for both output_modes
                 loss = bert_model(*batch, mode="loss")
+
+                # if loss.detach().cpu().numpy() == np.nan:
+                #     continue
 
                 if n_gpu > 1:
                     loss = loss.mean()  # mean() to average on multi-gpu.
@@ -264,12 +267,12 @@ class BertModelTrainer(object):
                 tr_loss += loss.item()
                 optimizer.step()
                 scheduler.step()  # Update learning rate schedule
-                bert_model.zero_grad()
+
                 global_step += 1
 
                 steps.set_description(
                     "Epoch {} / {}, Batch Loss {:.7f}, Mean Loss {:.7f}".format(
-                        epoch + 1, self.param.epochs, loss.item(), tr_loss / (step + 1)
+                        epoch + 1, self.param.epochs, loss.item(), tr_loss / (step + 1) / train_dataloader.batch_size
                     )
                 )
 
@@ -278,7 +281,7 @@ class BertModelTrainer(object):
             test_acc, test_loss = self.evaluate(model, test_data, test_label_list)
             logger.info(
                 "Epoch {}, train Loss: {:.7f}, eval acc: {}, eval loss: {:.7f}, test acc: {}, test loss: {:.7f}".format(
-                    epoch + 1, tr_loss, valid_acc, valid_loss, test_acc, test_loss
+                    epoch + 1, tr_loss / len(train_data), valid_acc, valid_loss / len(valid_data), test_acc, test_loss / len(test_data)
                 )
             )
             bert_model.train()

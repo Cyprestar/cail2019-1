@@ -1,5 +1,6 @@
 import logging
 import os
+import datetime
 
 from model import HyperParameters, BertModelTrainer
 
@@ -11,7 +12,7 @@ formatter = logging.Formatter(
     "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-MODEL_DIR = "./model"
+MODEL_DIR = "./output/model" + str(datetime.datetime.now())
 if not os.path.exists(MODEL_DIR):
     os.mkdir(MODEL_DIR)
 fh = logging.FileHandler(os.path.join(MODEL_DIR, "train.log"), encoding="utf-8")
@@ -27,6 +28,7 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 
 if __name__ == "__main__":
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
     bert_pretrained_model = './bert/ms'
 
     training_dataset = './data/raw/CAIL2019-SCM-big/SCM_5k.json'
@@ -39,7 +41,7 @@ if __name__ == "__main__":
 
     config = {
         "max_length": 512,
-        "epochs": 2,
+        "epochs": 10,
         "batch_size": 6,
         "learning_rate": 2e-5,
         "fp16": True,

@@ -67,30 +67,32 @@ class TripletTextDataset(Dataset):
         df_cp1["C"] = df["B"]
         df_cp1["label"] = "C"
 
-        df_cp2 = df.copy()
-        df_cp2["A"] = df["B"]
-        df_cp2["B"] = df["A"]
-        df_cp2["label"] = "B"
+        # df_cp2 = df.copy()
+        # df_cp2["A"] = df["B"]
+        # df_cp2["B"] = df["A"]
+        # df_cp2["label"] = "B"
+        #
+        # df_cp3 = df.copy()
+        # df_cp3["A"] = df["B"]
+        # df_cp3["B"] = df["C"]
+        # df_cp3["C"] = df["A"]
+        # df_cp3["label"] = "C"
+        #
+        # df_cp4 = df.copy()
+        # df_cp4["A"] = df["C"]
+        # df_cp4["B"] = df["A"]
+        # df_cp4["C"] = df["C"]
+        # df_cp4["label"] = "C"
+        #
+        # df_cp5 = df.copy()
+        # df_cp5["A"] = df["C"]
+        # df_cp5["B"] = df["C"]
+        # df_cp5["C"] = df["A"]
+        # df_cp5["label"] = "B"
 
-        df_cp3 = df.copy()
-        df_cp3["A"] = df["B"]
-        df_cp3["B"] = df["C"]
-        df_cp3["C"] = df["A"]
-        df_cp3["label"] = "C"
+        # df = pd.concat([df, df_cp1, df_cp2, df_cp3, df_cp4, df_cp5])
+        df = pd.concat([df, df_cp1])
 
-        df_cp4 = df.copy()
-        df_cp4["A"] = df["C"]
-        df_cp4["B"] = df["A"]
-        df_cp4["C"] = df["C"]
-        df_cp4["label"] = "C"
-
-        df_cp5 = df.copy()
-        df_cp5["A"] = df["C"]
-        df_cp5["B"] = df["C"]
-        df_cp5["C"] = df["A"]
-        df_cp5["label"] = "B"
-
-        df = pd.concat([df, df_cp1, df_cp2, df_cp3, df_cp4, df_cp5])
         df = df.drop_duplicates()
         df = df.sample(frac=1)
 
