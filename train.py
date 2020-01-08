@@ -28,7 +28,7 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     bert_pretrained_model = './bert/ms'
 
     training_dataset = './data/raw/CAIL2019-SCM-big/SCM_5k.json'
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     config = {
         "max_length": 512,
         "epochs": 10,
-        "batch_size": 6,
+        "batch_size": 3,
         "learning_rate": 2e-5,
         "fp16": True,
         "fp16_opt_level": "O1",
