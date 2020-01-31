@@ -67,30 +67,6 @@ class TripletTextDataset(Dataset):
         df_cp1["C"] = df["B"]
         df_cp1["label"] = "C"
 
-        # df_cp2 = df.copy()
-        # df_cp2["A"] = df["B"]
-        # df_cp2["B"] = df["A"]
-        # df_cp2["label"] = "B"
-        #
-        # df_cp3 = df.copy()
-        # df_cp3["A"] = df["B"]
-        # df_cp3["B"] = df["C"]
-        # df_cp3["C"] = df["A"]
-        # df_cp3["label"] = "C"
-        #
-        # df_cp4 = df.copy()
-        # df_cp4["A"] = df["C"]
-        # df_cp4["B"] = df["A"]
-        # df_cp4["C"] = df["C"]
-        # df_cp4["label"] = "C"
-        #
-        # df_cp5 = df.copy()
-        # df_cp5["A"] = df["C"]
-        # df_cp5["B"] = df["C"]
-        # df_cp5["C"] = df["A"]
-        # df_cp5["label"] = "B"
-
-        # df = pd.concat([df, df_cp1, df_cp2, df_cp3, df_cp4, df_cp5])
         df = pd.concat([df, df_cp1])
 
         df = df.drop_duplicates()
@@ -102,12 +78,7 @@ class TripletTextDataset(Dataset):
 def get_collator(max_len, device, tokenizer):
     def three_pair_collate_fn(batch):
         """
-        获取一个mini batch的数据，将文本三元组转化成tensor。
-
-        将ab、ac分别拼接，编码tensor
-
-        :param batch:
-        :return:
+        Get a mini batch, convert the triplet into tensor.
         """
         example_tensors = []
         for text_a, text_b, text_c, label in batch:
@@ -127,7 +98,9 @@ def get_collator(max_len, device, tokenizer):
 
 
 class InputFeatures(object):
-    """A single set of features of data."""
+    """
+    A single set of features of data.
+    """
 
     def __init__(self, input_ids, input_mask, segment_ids, features):
         self.input_ids = input_ids
@@ -146,18 +119,13 @@ class InputFeatures(object):
 
 
 class InputExample(object):
-    """A single training/test example for simple sequence classification."""
+    """
+    A single training/test example for simple sequence classification.
+    """
 
     def __init__(self, text_a, text_b=None, text_c=None, label=None):
-        """Constructs a InputExample.
-
-        Args:
-            text_a: string. The untokenized text of the first sequence. For single
-            sequence tasks, only this sequence must be specified.
-            text_b: (Optional) string. The untokenized text of the second sequence.
-            Only must be specified for sequence pair tasks.
-            label: (Optional) string. The label of the example. This should be
-            specified for train and dev examples, but not for test examples.
+        """
+        Constructs a InputExample.
         """
         self.text_a = text_a
         self.text_b = text_b

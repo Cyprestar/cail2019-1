@@ -4,17 +4,17 @@ from torch.autograd import Variable
 from torch.nn import CrossEntropyLoss
 from transformers.modeling_bert import BertPreTrainedModel, BertModel
 
-from .esim.layers import Seq2SeqEncoder, SoftmaxAttention  # ,RNNDropout
+from .esim.layers import Seq2SeqEncoder, SoftmaxAttention
 from .esim.utils import replace_masked
 
 
-class BertForSimMatchModel(BertPreTrainedModel):
+class LFESM(BertPreTrainedModel):
     """
-    ab、ac交互并编码
+    Legal Feature Enhanced Semantic Matching Network for Similar Case Matching.
     """
 
     def __init__(self, config):
-        super(BertForSimMatchModel, self).__init__(config)
+        super(LFESM, self).__init__(config)
         self.bert = BertModel(config)
         # self.dropout = nn.Dropout(config.hidden_dropout_prob)
         # self.seq_relationship = nn.Linear(config.hidden_size, 2)

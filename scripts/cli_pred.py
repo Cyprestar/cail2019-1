@@ -1,10 +1,10 @@
-from model import BertSimMatchModel
+from model import MatchModel
 
 MODEL_DIR = "model"
-model = BertSimMatchModel.load(MODEL_DIR)
+model = MatchModel.load(MODEL_DIR)
 
 while True:
-    text = input("输入句子: ")
+    text = input("Input sentence: ")
     a, b, c, *_ = text.split()
     results = model.predict([(a, b, c)])
 

@@ -15,22 +15,26 @@ from transformers import (
     BertTokenizer,
 )
 
-from config import HyperParameters, SimMatchModelConfig
+from config import HyperParameters, Config
 from data import TripletTextDataset, get_collator
 from util import seed_all
-from models.bert_esim import BertForSimMatchModel
+from models.lfesm import LFESM
+from models.baseline import BERTBaseline, LSTMBaseline, CNNBaseline
 
 logger = logging.getLogger("train model")
 
-algorithm_map = {"BertForSimMatchModel": BertForSimMatchModel}
+algorithm_map = {'LFESM': LFESM,
+                 'CNN': CNNBaseline,
+                 'LSTM': LSTMBaseline,
+                 'BERT': BERTBaseline}
 
 
-class BertSimMatchModel(object):
+class MatchModel(object):
     """
-    基于 Bert 实现的案件相似匹配模型
+    Model wrapper, provide saving, loading, and predicting functions
     """
 
-    def __init__(self, model, tokenizer, config: SimMatchModelConfig, device: torch.device = None) -> None:
+    def __init__(self, model, tokenizer, config: Config, device: torch.device = None) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.max_length = config.max_len
@@ -47,12 +51,8 @@ class BertSimMatchModel(object):
 
     def save(self, model_dir):
         """
-        存储模型
-
-        :param model_dir:
-        :return:
+        Save a trained model, configuration and tokenizer.
         """
-        # Save a trained model, configuration and tokenizer
         model_to_save = (self.model.module if hasattr(self.model, "module") else self.model)  # Only save the model it-self
         model_to_save.save_pretrained(model_dir)
         self.tokenizer.save_pretrained(model_dir)
@@ -60,19 +60,18 @@ class BertSimMatchModel(object):
     @classmethod
     def load(cls, model_dir, device=None):
         """
-        加载模型。通过模型文件构造实例
-
-        :param model_dir:
-        :param device:
-        :return:
+        Load the model from local file.
         """
         tokenizer = BertTokenizer.from_pretrained(model_dir, do_lower_case=False)
-        config = SimMatchModelConfig.from_pretrained(model_dir)
+        config = Config.from_pretrained(model_dir)
         model_class = algorithm_map[config.algorithm]
         model = model_class.from_pretrained(model_dir)
         return cls(model, tokenizer, model.config, device)
 
     def predict(self, text_tuples: Union[List[Tuple[str, str, str]], TripletTextDataset]) -> List[Tuple[str, float]]:
+        """
+        Given a triplet or a Dataset, generate the prediction.
+        """
         if isinstance(text_tuples, Dataset):
             data = text_tuples
         else:
@@ -100,7 +99,7 @@ class BertSimMatchModel(object):
         return final_results
 
 
-class BertModelTrainer(object):
+class Trainer(object):
     def __init__(
             self,
             dataset_path,
@@ -113,13 +112,15 @@ class BertModelTrainer(object):
             test_ground_truth_path,
     ) -> None:
         """
-
-        :param dataset_path: 数据集路径。 默认当作是训练集，但当train函数采用了kfold参数时，将对该数据集进行划分并做交叉验证
-        :param bert_model_dir: 预训练 bert 模型路径
-        :param param: 超参数
-        :param algorithm: 选择算法，默认 BertForSimMatchModel
-        :param test_input_path: 固定的测试集的路径，用于快速测试模型性能
-        :param test_ground_truth_path: 固定的测试集的标记
+        Model trainer.
+        :param dataset_path: Path to train set
+        :param bert_model_dir: Path to pretrained BERT model
+        :param param: Hyper parameters
+        :param algorithm: Model name
+        :param: valid_input_path: Path to valid set
+        :param: valid_ground_truth_path: Path to result of valid set
+        :param test_input_path: Path to test set
+        :param test_ground_truth_path: Path to result of test set
         """
         self.dataset_path = dataset_path
         self.bert_model_dir = bert_model_dir
@@ -134,12 +135,8 @@ class BertModelTrainer(object):
 
     def load_dataset(self) -> Tuple[TripletTextDataset, TripletTextDataset, List[str], TripletTextDataset, List[str]]:
         """
-        划分k折交叉验证数据集用于cv
-
-        :param n_splits:
-        :return: List[(train_data, test_data, test_labels_list)]
+        Load the train set, valid set, and test set.
         """
-
         train_data = TripletTextDataset.from_jsons(self.dataset_path, use_augment=True)
         valid_data = TripletTextDataset.from_jsons(self.valid_input_path)
         with open(self.valid_ground_truth_path, 'r', encoding='utf-8') as f:
@@ -150,15 +147,17 @@ class BertModelTrainer(object):
 
         return train_data, valid_data, valid_label_list, test_data, test_label_list
 
-    def train(self, model_dir, kfold=1):
+    def train(self, model_dir):
+        """
+        Train the model.
+        """
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         n_gpu = torch.cuda.device_count()
-        logger.info("***** Running training *****")
-        logger.info("dataset: {}".format(self.dataset_path))
-        logger.info("k-fold number: {}".format(kfold))
-        logger.info("device: {} n_gpu: {}".format(device, n_gpu))
+        logger.info("***** Start training *****")
+        logger.info("Dataset: {}".format(self.dataset_path))
+        logger.info("Device: {} GPU Num: {}".format(device, n_gpu))
         logger.info(
-            "config: {}".format(
+            "Config: {}".format(
                 json.dumps(self.param.__dict__, indent=4, sort_keys=True)
             )
         )
@@ -208,7 +207,7 @@ class BertModelTrainer(object):
             try:
                 from apex import amp
             except ImportError:
-                raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
+                raise ImportError("Please install apex from https://www.github.com/nvidia/apex to enable fp16 training.")
 
             bert_model, optimizer = amp.initialize(bert_model, optimizer, opt_level=self.param.fp16_opt_level)
 
@@ -276,25 +275,26 @@ class BertModelTrainer(object):
                     )
                 )
 
-            model = BertSimMatchModel(bert_model, tokenizer, config)
+            model = MatchModel(bert_model, tokenizer, config)
             valid_acc, valid_loss = self.evaluate(model, valid_data, valid_label_list)
             test_acc, test_loss = self.evaluate(model, test_data, test_label_list)
             logger.info(
                 "Epoch {}, train Loss: {:.7f}, eval acc: {}, eval loss: {:.7f}, test acc: {}, test loss: {:.7f}".format(
-                    epoch + 1, tr_loss / len(train_data), valid_acc, valid_loss / len(valid_data), test_acc, test_loss / len(test_data)
+                    epoch + 1, tr_loss / len(train_data), valid_acc, valid_loss / len(valid_data), test_acc,
+                    test_loss / len(test_data)
                 )
             )
             bert_model.train()
 
-        model = BertSimMatchModel(bert_model, tokenizer, config)
+        model = MatchModel(bert_model, tokenizer, config)
         model.save(model_dir)
 
         logger.info("***** Training complete *****")
 
     @staticmethod
-    def evaluate(model: BertSimMatchModel, data: TripletTextDataset, real_label_list: List[str]):
+    def evaluate(model: MatchModel, data: TripletTextDataset, real_label_list: List[str]):
         """
-        评估模型，计算acc
+        Evaluate the model.
         """
         num_padding = 0
         # if isinstance(model.model, torch.nn.DataParallel):

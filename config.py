@@ -3,7 +3,7 @@ from transformers import BertConfig
 
 class HyperParameters(object):
     """
-    用于管理模型超参数
+    Hyper parameter of the model
     """
 
     def __init__(
@@ -18,32 +18,32 @@ class HyperParameters(object):
             warmup_steps=0.1,
     ) -> None:
         self.max_length = max_length
-        """句子的最大长度"""
+        """Max length of sentence"""
         self.epochs = epochs
-        """训练迭代轮数"""
+        """Num of epochs"""
         self.batch_size = batch_size
-        """每个batch的样本数量"""
+        """Size of mini batch"""
         self.learning_rate = learning_rate
-        """学习率"""
+        """Learning rate"""
         self.fp16 = fp16
-        """是否使用fp16混合精度训练"""
+        """Enable FP16 mixed-precision training"""
         self.fp16_opt_level = fp16_opt_level
-        """用于fp16，Apex AMP优化等级，['O0', 'O1', 'O2', and 'O3']可选，详见https://nvidia.github.io/apex/amp.html"""
+        """NVIDIA APEX Level, ['O0', 'O1', 'O2', and 'O3'], see: https://nvidia.github.io/apex/amp.html"""
         self.max_grad_norm = max_grad_norm
-        """最大梯度裁剪"""
+        """Max gradient normalization"""
         self.warmup_steps = warmup_steps
-        """学习率线性预热步数"""
+        """Steps of warm-up for learning rate"""
 
     def __repr__(self) -> str:
         return self.__dict__.__repr__()
 
 
-class SimMatchModelConfig(BertConfig):
+class Config(BertConfig):
     """
-    相似案例匹配模型的配置
+    Config of MatchModel
     """
 
     def __init__(self, max_len=512, algorithm="BertForSimMatchModel", **kwargs):
-        super(SimMatchModelConfig, self).__init__(**kwargs)
+        super(Config, self).__init__(**kwargs)
         self.max_len = max_len
         self.algorithm = algorithm

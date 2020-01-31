@@ -1,8 +1,7 @@
 import logging
 import os
-import datetime
 
-from model import HyperParameters, BertModelTrainer
+from model import HyperParameters, Trainer
 
 logger = logging.getLogger("train model")
 logger.setLevel(logging.INFO)
@@ -12,7 +11,7 @@ formatter = logging.Formatter(
     "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-MODEL_DIR = "./output/model" + str(datetime.datetime.now())
+MODEL_DIR = "./output/model"
 if not os.path.exists(MODEL_DIR):
     os.mkdir(MODEL_DIR)
 fh = logging.FileHandler(os.path.join(MODEL_DIR, "train.log"), encoding="utf-8")
@@ -28,7 +27,6 @@ logger.addHandler(fh)
 logger.addHandler(ch)
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     bert_pretrained_model = './bert/ms'
 
     training_dataset = './data/raw/CAIL2019-SCM-big/SCM_5k.json'
@@ -41,7 +39,7 @@ if __name__ == "__main__":
 
     config = {
         "max_length": 512,
-        "epochs": 10,
+        "epochs": 6,
         "batch_size": 3,
         "learning_rate": 2e-5,
         "fp16": True,
@@ -51,9 +49,9 @@ if __name__ == "__main__":
     }
     hyper_parameter = HyperParameters()
     hyper_parameter.__dict__ = config
-    algorithm = "BertForSimMatchModel"
+    algorithm = "LFESM"
 
-    trainer = BertModelTrainer(
+    trainer = Trainer(
         training_dataset,
         bert_pretrained_model,
         hyper_parameter,
@@ -63,4 +61,4 @@ if __name__ == "__main__":
         test_input_path,
         test_ground_truth_path,
     )
-    trainer.train(MODEL_DIR, 1)
+    trainer.train(MODEL_DIR)

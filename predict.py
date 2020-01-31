@@ -4,7 +4,7 @@ import time
 
 import torch
 
-from model import BertSimMatchModel
+from model import MatchModel
 from data import TripletTextDataset
 from util import seed_all
 
@@ -23,8 +23,8 @@ ouf = open(output_path, "w", encoding="utf-8")
 
 seed_all(42)
 
-MODEL_DIR = "./model16"
-model = BertSimMatchModel.load(MODEL_DIR, torch.device("cpu"))
+MODEL_DIR = "./output/model"
+model = MatchModel.load(MODEL_DIR, torch.device("cpu"))
 print('Model: ' + MODEL_DIR)
 
 test_set = TripletTextDataset.from_jsons(input_path)
