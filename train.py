@@ -1,6 +1,5 @@
 import logging
 import os
-import datetime
 
 from model import HyperParameters, BertModelTrainer
 
@@ -12,7 +11,7 @@ formatter = logging.Formatter(
     "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-MODEL_DIR = "./output/model" + str(datetime.datetime.now())
+MODEL_DIR = "./model"
 if not os.path.exists(MODEL_DIR):
     os.mkdir(MODEL_DIR)
 fh = logging.FileHandler(os.path.join(MODEL_DIR, "train.log"), encoding="utf-8")
@@ -41,7 +40,7 @@ if __name__ == "__main__":
 
     config = {
         "max_length": 512,
-        "epochs": 10,
+        "epochs": 30,
         "batch_size": 3,
         "learning_rate": 2e-5,
         "fp16": True,

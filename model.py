@@ -18,7 +18,7 @@ from transformers import (
 from config import HyperParameters, SimMatchModelConfig
 from data import TripletTextDataset, get_collator
 from util import seed_all
-from models.bert_esim import BertForSimMatchModel
+from models.cnn import BertForSimMatchModel
 
 logger = logging.getLogger("train model")
 
