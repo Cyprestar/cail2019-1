@@ -6,9 +6,10 @@ This repository is the source code of the paper *Legal Feature Enhanced Semantic
 
 ## Model Overview
 
-<img src="doc/model.jpg" alt="Model"/>
-
-<p style='text-align: center'> Fig. 1 Overview of LFESM</p>
+<div align="center">
+    <img src="doc/model.jpg" alt="Model"/>
+    <p> Fig. 1 Overview of LFESM</p>
+</div>
 
 ## Install and Run
 
@@ -130,6 +131,6 @@ Table 2 Experimental results of methods on CAIL2019-SCM
 
 We sincerely appreciate [Taoooo9](https://github.com/Taoooo9)'s help.
 
-
+---
 
 Author: [Zhilong Hong](https://github.com/Thesharing), [Qifei Zhou](https://github.com/Mrzhouqifei), [Rong Zhang](https://github.com/rzhangpku), Tong Mo, and Weiping Li.
