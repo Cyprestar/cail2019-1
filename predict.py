@@ -24,7 +24,7 @@ ouf = open(output_path, "w", encoding="utf-8")
 seed_all(42)
 
 MODEL_DIR = "./output/model"
-model = MatchModel.load(MODEL_DIR, torch.device("cpu"))
+model = MatchModel.load(MODEL_DIR, torch.device("cuda"))
 print('Model: ' + MODEL_DIR)
 
 test_set = TripletTextDataset.from_jsons(input_path)
@@ -39,5 +39,5 @@ ouf.close()
 
 end_time = time.time()
 spent = end_time - start_time
-print("numbers of samples: %d" % len(results))
-print("time spent: %.2f seconds" % spent)
+print("Count of samples: %d" % len(results))
+print("Time spent: %.2f seconds" % spent)

@@ -153,7 +153,7 @@ class Trainer(object):
         """
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         n_gpu = torch.cuda.device_count()
-        logger.info("***** Start training *****")
+        logger.info("***** Start Training *****")
         logger.info("Dataset: {}".format(self.dataset_path))
         logger.info("Device: {} GPU Num: {}".format(device, n_gpu))
         logger.info(
@@ -236,6 +236,8 @@ class Trainer(object):
             drop_last=False,
         )
 
+        loss_log = open(os.path.join(model_dir, './loss.txt'), 'w', encoding='utf-8')
+
         bert_model.train()
         for epoch in range(int(self.param.epochs)):
             tr_loss = 0
@@ -264,6 +266,7 @@ class Trainer(object):
                     )
 
                 tr_loss += loss.item()
+                print(tr_loss, file=loss_log)
                 optimizer.step()
                 scheduler.step()  # Update learning rate schedule
 
@@ -276,18 +279,20 @@ class Trainer(object):
                 )
 
             model = MatchModel(bert_model, tokenizer, config)
-            valid_acc, valid_loss = self.evaluate(model, valid_data, valid_label_list)
-            test_acc, test_loss = self.evaluate(model, test_data, test_label_list)
+            valid_acc, valid_loss, valid_f1 = self.evaluate(model, valid_data, valid_label_list)
+            test_acc, test_loss, test_f1 = self.evaluate(model, test_data, test_label_list)
             logger.info(
-                "Epoch {}, train Loss: {:.7f}, eval acc: {}, eval loss: {:.7f}, test acc: {}, test loss: {:.7f}".format(
-                    epoch + 1, tr_loss / len(train_data), valid_acc, valid_loss / len(valid_data), test_acc,
-                    test_loss / len(test_data)
+                "Epoch {}, Train Loss: {:.7f}, Eval Acc: {:.7f}, Eval F1: {:.7f}, Eval Loss: {:.7f}, "
+                "Test Acc: {:.7f}, Test F1: {:.7f}, Test Loss: {:.7f}".format(
+                    epoch + 1, tr_loss / len(train_data), valid_acc, valid_f1, valid_loss / len(valid_data),
+                    test_acc, test_f1, test_loss / len(test_data)
                 )
             )
             bert_model.train()
 
         model = MatchModel(bert_model, tokenizer, config)
         model.save(model_dir)
+        loss_log.close()
 
         logger.info("***** Training complete *****")
 
@@ -331,14 +336,26 @@ class Trainer(object):
         assert len(predict_result) == len(real_label_list)
 
         correct = 0
+        true_positive = 0
+        false_negative = 0
+        false_positive = 0
         for i, real_label in enumerate(real_label_list):
             try:
                 predict_label = predict_result[i][0]
                 if predict_label == real_label:
                     correct += 1
+                    if real_label:
+                        true_positive += 1
+                elif predict_label:
+                    false_positive += 1
+                else:
+                    false_negative += 1
             except Exception as e:
                 print(e)
                 continue
 
-        acc = correct / len(real_label_list)
-        return acc, loss_sum
+        accuracy = correct / len(real_label_list)
+        precision = true_positive / (true_positive + false_positive)
+        recall = true_positive / (true_positive + false_negative)
+        f1 = 2 * precision * recall / (precision + recall)
+        return accuracy, loss_sum, f1

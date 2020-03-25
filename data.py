@@ -137,6 +137,7 @@ class InputExample(object):
         text, features = extract_features_and_replace(text)
         tokens = tokenizer.tokenize(text)
 
+        # Here we truncate sentence from the beginning
         if len(tokens) > max_seq_length - 2:
             tokens = tokens[len(tokens) - (max_seq_length - 2):]
 
