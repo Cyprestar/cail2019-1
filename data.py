@@ -7,7 +7,8 @@ import torch
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import default_collate
 
-from models.feature import extract_features_and_replace
+from models.data.feature import extract_features_and_replace
+from models.data.text_rank import text_rank
 
 
 class TripletTextDataset(Dataset):
@@ -135,9 +136,11 @@ class InputExample(object):
     @staticmethod
     def _text_pair_to_feature(text, tokenizer, max_seq_length):
         text, features = extract_features_and_replace(text)
-        tokens = tokenizer.tokenize(text)
+
+        text = text_rank(text)
 
         # Here we truncate sentence from the beginning
+        tokens = tokenizer.tokenize(text)
         if len(tokens) > max_seq_length - 2:
             tokens = tokens[len(tokens) - (max_seq_length - 2):]
 

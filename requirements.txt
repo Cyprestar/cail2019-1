@@ -4,3 +4,8 @@ torch
 transformers
 scikit-learn
 tqdm
+networkx
+
+flask
+flask_cors
+requests

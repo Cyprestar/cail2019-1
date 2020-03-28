@@ -1,8 +1,9 @@
 .idea
 .vscode
 
-data/
-model/
-output/
-bert/
+/data/
+/model/
+/output/
+/bert/
 __pycache__
+*.log
